@@ -1,4 +1,4 @@
-package seshandler
+package session
 
 import (
 	"crypto/sha256"
@@ -13,16 +13,14 @@ import (
 const (
 	sessionCookieName = "sessionID"
 	sessionIDLength   = 64
-	maxLifetime       = time.Hour * 2
 )
 
 // Session type represents an HTTP session.
 type Session struct {
-	id          string
-	ip          string
-	username    string
-	expireTime  time.Time
-	maxLifetime time.Duration
+	id         string
+	ip         string
+	username   string
+	expireTime time.Time
 
 	lock *sync.RWMutex
 }
@@ -33,12 +31,12 @@ func hashString(data string) string {
 }
 
 // NewSession creates a new session with the given information
-func NewSession(id, ip, username string) *Session {
-	return &Session{id: id, ip: ip, username: username, expireTime: time.Now().Add(maxLifetime), maxLifetime: maxLifetime, lock: &sync.RWMutex{}}
+func NewSession(id, ip, username string, maxLifetime time.Duration) *Session {
+	return &Session{id: id, ip: ip, username: username, expireTime: time.Now().Add(maxLifetime), lock: &sync.RWMutex{}}
 }
 
 // ParseSession parses string that would come from a cookie into a Session struct.
-func ParseSession(r *http.Request) (*Session, error) {
+func ParseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	// No session cookie available
 	if err != nil {
@@ -48,7 +46,7 @@ func ParseSession(r *http.Request) (*Session, error) {
 }
 
 // SessionCookie builds a cookie from the Session struct
-func (s *Session) SessionCookie() *http.Cookie {
+func (s *Session) SessionCookie(maxLifetime time.Duration) *http.Cookie {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	cookie := http.Cookie{Name: sessionCookieName, Value: s.String(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
@@ -65,7 +63,7 @@ func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
 	if cookie.Expires.Before(time.Now()) {
 		return nil, sessionExpiredError(id)
 	}
-	session := &Session{id: id, ip: ip, username: username, expireTime: cookie.Expires, maxLifetime: maxLifetime, lock: &sync.RWMutex{}}
+	session := &Session{id: id, ip: ip, username: username, expireTime: cookie.Expires, lock: &sync.RWMutex{}}
 	hashCheck := hashString(session.dataPayload())
 	if len(id) < sessionIDLength || strings.Compare(hash, hashCheck) != 0 {
 		return nil, invalidSessionCookie()
@@ -107,6 +105,11 @@ func (s *Session) GetUsername() string {
 	return s.username
 }
 
+// GetExpireTime returns the time that the session will expire.
+func (s *Session) GetExpireTime() time.Time {
+	return s.expireTime
+}
+
 // IsExpired returns whether the session is expired.
 func (s *Session) IsExpired() bool {
 	s.lock.RLock()
@@ -115,8 +118,9 @@ func (s *Session) IsExpired() bool {
 }
 
 // UpdateExpireTime updates the time that the session expires
-func (s *Session) updateExpireTime() {
+func (s *Session) UpdateExpireTime(maxLifetime time.Duration) time.Time {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.expireTime = time.Now().Add(maxLifetime)
+	return s.expireTime
 }
