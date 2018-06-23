@@ -23,3 +23,16 @@ func newSesHandler(da dataAccessLayer, timeout int) (*SesHandler, error) {
 	ses := &SesHandler{dataAccess: da, timeout: timeout}
 	return ses, ses.dataAccess.createTable()
 }
+
+// IsValidSession determines if the given session is valid.
+func (sh *SesHandler) IsValidSession(session *Session) bool {
+	if err := sh.dataAccess.validateSession(session); err != nil {
+		return false
+	}
+	return true
+}
+
+// UpdateSession sets the expiration of the session to time.Now.
+func (sh *SesHandler) UpdateSession(session *Session) error {
+	return sh.dataAccess.updateSession(session)
+}

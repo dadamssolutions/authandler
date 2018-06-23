@@ -1,7 +1,10 @@
 package seshandler
 
 import (
+	"fmt"
+	"log"
 	"testing"
+	"time"
 )
 
 type FakeDataAccess struct {
@@ -14,27 +17,28 @@ func (f FakeDataAccess) createTable() error {
 	}
 	return nil
 }
-func (f FakeDataAccess) createSession() (string, error) {
+func (f FakeDataAccess) insertSession() (*Session, error) {
 	if f.err {
-		return "", databaseAccessError()
+		return nil, databaseAccessError()
 	}
-	return "", nil
+	return nil, nil
 }
-func (f FakeDataAccess) updateSession(sessionID string) error {
+func (f FakeDataAccess) updateSession(session *Session) error {
+	if f.err {
+		return databaseAccessError()
+	}
+	session.updateExpireTime()
+	return nil
+}
+func (f FakeDataAccess) destroySession(session *Session) error {
 	if f.err {
 		return databaseAccessError()
 	}
 	return nil
 }
-func (f FakeDataAccess) destroySession(sessionID string) error {
+func (f FakeDataAccess) validateSession(session *Session) error {
 	if f.err {
-		return databaseAccessError()
-	}
-	return nil
-}
-func (f FakeDataAccess) validateSession(sessionID string) error {
-	if f.err {
-		return sessionNotFoundError(sessionID)
+		return sessionNotFoundError(session.GetID())
 	}
 	return nil
 }
@@ -49,5 +53,29 @@ func TestTableCreation(t *testing.T) {
 	_, err = newSesHandler(da, 0)
 	if err != nil {
 		t.Fatal("Unexpected error in creating the database table.")
+	}
+}
+
+func TestUpdateExpiredTime(t *testing.T) {
+	// We should get an update to expiration time.
+	da := FakeDataAccess{false}
+	sh, _ := newSesHandler(&da, 0)
+	session := NewSession("", "", "")
+	now := time.Now().Add(maxLifetime)
+	time.Sleep(time.Microsecond * 2)
+	err := sh.UpdateSession(session)
+	if err != nil || session.expireTime.Before(now) {
+		log.Fatal("Session expiration not updated.")
+	}
+
+	// Now we should not get an update to expiration time.
+	da.err = true
+	nowt := time.Now().Add(maxLifetime)
+	time.Sleep(time.Microsecond * 2)
+	err = sh.UpdateSession(session)
+	if err == nil || nowt.Before(session.expireTime) {
+		fmt.Println(nowt)
+		fmt.Println(session.expireTime)
+		log.Fatal("Session expiration update unexpected.")
 	}
 }
