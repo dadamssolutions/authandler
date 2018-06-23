@@ -4,6 +4,9 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"time"
+
+	"github.com/dadamssolutions/seshandler/session"
 )
 
 const (
@@ -15,10 +18,10 @@ const (
 
 type dataAccessLayer interface {
 	createTable() error
-	insertSession() (*Session, error)
-	updateSession(*Session) error
-	destroySession(*Session) error
-	validateSession(*Session) error
+	insertSession() (*session.Session, error)
+	updateSession(*session.Session, time.Duration) error
+	destroySession(*session.Session) error
+	validateSession(*session.Session) error
 }
 
 type sesAccess struct {
@@ -47,7 +50,7 @@ func (s sesAccess) createTable() error {
 	return tx.Commit()
 }
 
-func (s sesAccess) insertSession() (*Session, error) {
+func (s sesAccess) insertSession() (*session.Session, error) {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()
@@ -58,22 +61,7 @@ func (s sesAccess) insertSession() (*Session, error) {
 
 }
 
-func (s sesAccess) updateSession(session *Session) error {
-	tx, err := s.Begin()
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	_, err = tx.Exec(updateSession, session.expireTime.Add(maxLifetime), session.GetID())
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	session.updateExpireTime()
-	return tx.Commit()
-}
-
-func (s sesAccess) destroySession(session *Session) error {
+func (s sesAccess) destroySession(session *session.Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()
@@ -83,7 +71,22 @@ func (s sesAccess) destroySession(session *Session) error {
 	return tx.Commit()
 }
 
-func (s sesAccess) validateSession(session *Session) error {
+func (s sesAccess) updateSession(session *session.Session, maxLifetime time.Duration) error {
+	tx, err := s.Begin()
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	_, err = tx.Exec(updateSession, session.GetExpireTime().Add(maxLifetime), session.GetID())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	session.UpdateExpireTime(maxLifetime)
+	return tx.Commit()
+}
+
+func (s sesAccess) validateSession(session *session.Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()
