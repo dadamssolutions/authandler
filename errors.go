@@ -10,9 +10,12 @@ func databaseTableCreationError() error {
 	return errors.New("Cannot create sessions table in the database")
 }
 
-// This is only used in testing
-func databaseAccessError() error {
-	return errors.New("Cannot access database")
+func sessionForUserExistsError(username string) error {
+	return errors.New("Session for username " + username + " already exists")
+}
+
+func sessionDestroyedError(username string) error {
+	return errors.New("Session for " + username + " has been destroyed")
 }
 
 func invalidSessionCookie() error {
@@ -21,4 +24,9 @@ func invalidSessionCookie() error {
 
 func sessionExpiredError(sessionID string) error {
 	return errors.New("The session ID " + sessionID + " is expired")
+}
+
+// This is only used in testing
+func databaseAccessError() error {
+	return errors.New("Cannot access database")
 }

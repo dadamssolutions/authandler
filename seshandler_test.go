@@ -38,6 +38,7 @@ func (f FakeDataAccess) destroySession(session *Session) error {
 	if f.err {
 		return databaseAccessError()
 	}
+	session.destroy()
 	return nil
 }
 func (f FakeDataAccess) validateSession(session *Session) error {
@@ -103,6 +104,22 @@ func TestCreateSession(t *testing.T) {
 		log.Fatal("Session not created properly")
 	}
 
+}
+
+func TestDestroySession(t *testing.T) {
+	da := FakeDataAccess{false}
+	sh, _ := newSesHandler(&da, timeout)
+	s, err := sh.CreateSession("thedadams")
+	sh.DestroySession(s)
+	if s.isValid() || err != nil {
+		log.Fatal("Session not destroyed.")
+	}
+
+	da.err = true
+	err = sh.DestroySession(s)
+	if s.isValid() || err == nil {
+		log.Fatal("Session destroyed unexpectedly.")
+	}
 }
 
 func TestMain(m *testing.M) {

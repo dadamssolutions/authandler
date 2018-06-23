@@ -13,6 +13,7 @@ type Session struct {
 	id         string
 	sessionID  string
 	username   string
+	destroyed  bool
 	expireTime time.Time
 
 	lock *sync.RWMutex
@@ -102,4 +103,22 @@ func (s *Session) updateExpireTime(maxLifetime time.Duration) time.Time {
 	defer s.lock.Unlock()
 	s.expireTime = time.Now().Add(maxLifetime)
 	return s.expireTime
+}
+
+func (s *Session) destroy() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.destroyed = true
+}
+
+func (s *Session) isDestroyed() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.destroyed
+}
+
+func (s *Session) isValid() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.isDestroyed() && s.isExpired()
 }

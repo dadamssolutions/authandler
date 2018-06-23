@@ -67,6 +67,12 @@ func (sh *SesHandler) CreateSession(username string) (*Session, error) {
 	return sh.dataAccess.createSession(username, sh.maxLifetime)
 }
 
+// DestroySession gets rid of a session, if it exists in the database.
+// If destroy is successful, the session pointer is set to nil.
+func (sh *SesHandler) DestroySession(session *Session) error {
+	return sh.dataAccess.destroySession(session)
+}
+
 // IsValidSession determines if the given session is valid.
 func (sh *SesHandler) IsValidSession(session *Session) bool {
 	if err := sh.dataAccess.validateSession(session); err != nil {

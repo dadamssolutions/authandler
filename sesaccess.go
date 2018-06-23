@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	databaseCreation = "CREATE TABLE IF NOT EXISTS sessions (id char(16) NOT NULL, session_hash char(64) NOT NULL, user_id NOT NULL, expiration timestamp, PRIMARY KEY (id);"
-	insertSession    = "INSERT INTO sessions(id, session_hash, user_id, expiration) VALUES($1, $2, $3, $4);"
-	getSessionInfo   = "SELECT (id, session_hash, user_id, expiration) FROM sessions WHERE id = $1;"
-	updateSession    = "UPDATE sessions SET expiration = $1 WHERE id_hash = $2;"
+	databaseCreation  = "CREATE TABLE IF NOT EXISTS sessions (id char(16) NOT NULL, session_hash char(64) NOT NULL, user_id NOT NULL, expiration timestamp, PRIMARY KEY (id);"
+	insertSession     = "INSERT INTO sessions(id, session_hash, user_id, expiration) VALUES($1, $2, $3, $4);"
+	userSessionExists = "SELECT count(*) FROM sessions WHERE user_id = $1"
+	deleteSession     = "DELETE FROM sessions WHERE id = $1 AND session_hash = $2 AND user_id = $3;"
+	getSessionInfo    = "SELECT (id, session_hash, user_id, expiration) FROM sessions WHERE id = $1;"
+	updateSession     = "UPDATE sessions SET expiration = $1 WHERE id_hash = $2;"
 )
 
 type dataAccessLayer interface {
@@ -42,6 +44,12 @@ func (s sesAccess) createTable() error {
 }
 
 func (s sesAccess) createSession(username string, maxLifetime time.Duration) (*Session, error) {
+	if exists, err := s.sessionExistsForUser(username); exists {
+		if err == nil {
+			err = sessionForUserExistsError(username)
+		}
+		return nil, err
+	}
 	var id, sessionID string
 	var err error
 	var tx *sql.Tx
@@ -68,7 +76,24 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration) (*S
 		}
 	}
 	return nil, tx.Commit()
+}
 
+func (s sesAccess) sessionExistsForUser(username string) (bool, error) {
+	tx, err := s.Begin()
+	if err != nil {
+		tx.Rollback()
+		return true, err
+	}
+	var count int
+	err = tx.QueryRow(userSessionExists, username).Scan(&count)
+	if err != nil {
+		return true, err
+	}
+	err = tx.Commit()
+	if err != nil {
+		return true, err
+	}
+	return count > 0, nil
 }
 
 func (s sesAccess) destroySession(session *Session) error {
@@ -77,7 +102,12 @@ func (s sesAccess) destroySession(session *Session) error {
 		tx.Rollback()
 		return err
 	}
-	// TODO
+	_, err = tx.Exec(deleteSession, session.getID(), hashString(session.hashPayload()), session.getUsername())
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	session = nil
 	return tx.Commit()
 }
 
