@@ -8,10 +8,9 @@ import (
 )
 
 const (
-	idLength         = 64
-	databaseCreation = "CREATE TABLE IF NOT EXISTS sessions (id char(64) NOT NULL UNIQUE, ip cidr NOT NULL, user_id NOT NULL expiration timestamp, PRIMARY KEY (id, ip, user_id);"
-	getSessionInfo   = "SELECT (id, ip, user_id) FROM sessions WHERE id = $1;"
-	updateSession    = "UPDATE sessions SET expiration = $1 WHERE id = $2;"
+	databaseCreation = "CREATE TABLE IF NOT EXISTS sessions (id char(16) NOT NULL, session_hash char(64) NOT NULL, user_id NOT NULL, expiration timestamp, PRIMARY KEY (id);"
+	getSessionInfo   = "SELECT (id, session_hash, user_id, expiration) FROM sessions WHERE id = $1;"
+	updateSession    = "UPDATE sessions SET expiration = $1 WHERE id_hash = $2;"
 )
 
 type dataAccessLayer interface {
@@ -27,7 +26,7 @@ type sesAccess struct {
 }
 
 func enerateID() string {
-	b := make([]byte, idLength)
+	b := make([]byte, selectorIDLength)
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
@@ -75,7 +74,7 @@ func (s sesAccess) updateSession(session *Session, maxLifetime time.Duration) er
 		tx.Rollback()
 		return err
 	}
-	_, err = tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), session.getID())
+	_, err = tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), hashString(session.hashPayload()))
 	if err != nil {
 		tx.Rollback()
 		return err

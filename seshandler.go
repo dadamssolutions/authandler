@@ -1,9 +1,22 @@
 package seshandler
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"time"
 )
+
+const (
+	sessionCookieName = "sessionID"
+	selectorIDLength  = 16
+	sessionIDLength   = 64
+)
+
+func hashString(data string) string {
+	hashBytes := sha256.Sum256([]byte(data))
+	return base64.URLEncoding.EncodeToString(hashBytes[:])
+}
 
 // SesHandler creates and maintains session in a database.
 type SesHandler struct {
@@ -21,7 +34,7 @@ func NewSesHandlerWithDB(db *sql.DB, timeout time.Duration) (*SesHandler, error)
 
 func newSesHandler(da dataAccessLayer, timeout time.Duration) (*SesHandler, error) {
 	if timeout < 0 {
-		timeout = 0
+		timeout = time.Hour
 	}
 	ses := &SesHandler{dataAccess: da, maxLifetime: timeout}
 	return ses, ses.dataAccess.createTable()

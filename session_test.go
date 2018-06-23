@@ -31,19 +31,19 @@ func TestUpdateSessionExpiredTime(t *testing.T) {
 }
 
 func TestSessionCookie(t *testing.T) {
-	ses := newSession(strings.Repeat("d", 64), "127.0.0.1", "thedadams", timeout)
+	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
 	cookie := ses.sessionCookie(timeout)
 
-	if strings.Compare(cookie.Name, sessionCookieName) != 0 || strings.Compare(cookie.Value, ses.string()) != 0 || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout) {
+	if strings.Compare(cookie.Name, sessionCookieName) != 0 || strings.Compare(cookie.Value, ses.cookieValue()) != 0 || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout) {
 		log.Fatal("Session cookie not created properly")
 	}
 }
 
 func TestSessionParsing(t *testing.T) {
-	ses := newSession(strings.Repeat("d", 64), "127.0.0.1", "thedadams", timeout)
+	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
 	sesTest, err := parseSessionFromCookie(ses.sessionCookie(timeout))
 
-	if err != nil || strings.Compare(ses.id, sesTest.id) != 0 || strings.Compare(ses.ip, sesTest.ip) != 0 || strings.Compare(ses.username, sesTest.username) != 0 {
+	if err != nil || strings.Compare(ses.id, sesTest.id) != 0 || strings.Compare(ses.sessionID, sesTest.sessionID) != 0 || strings.Compare(ses.username, sesTest.username) != 0 {
 		t.Fatal("Session cookie not parsed properly")
 	}
 }

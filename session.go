@@ -1,8 +1,6 @@
 package seshandler
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,29 +8,19 @@ import (
 	"time"
 )
 
-const (
-	sessionCookieName = "sessionID"
-	sessionIDLength   = 64
-)
-
 // Session type represents an HTTP session.
 type Session struct {
 	id         string
-	ip         string
+	sessionID  string
 	username   string
 	expireTime time.Time
 
 	lock *sync.RWMutex
 }
 
-func hashString(data string) string {
-	hashBytes := sha256.Sum256([]byte(data))
-	return base64.URLEncoding.EncodeToString(hashBytes[:])
-}
-
 // NewSession creates a new session with the given information
-func newSession(id, ip, username string, maxLifetime time.Duration) *Session {
-	return &Session{id: id, ip: ip, username: username, expireTime: time.Now().Add(maxLifetime), lock: &sync.RWMutex{}}
+func newSession(id, sessionID, username string, maxLifetime time.Duration) *Session {
+	return &Session{id: id, sessionID: sessionID, username: username, expireTime: time.Now().Add(maxLifetime), lock: &sync.RWMutex{}}
 }
 
 // ParseSession parses string that would come from a cookie into a Session struct.
@@ -49,39 +37,37 @@ func parseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) 
 func (s *Session) sessionCookie(maxLifetime time.Duration) *http.Cookie {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	cookie := http.Cookie{Name: sessionCookieName, Value: s.string(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
+	cookie := http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
 	return &cookie
 }
 
 func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
-	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || cookie.Expires.IsZero() || len(cookieStrings) != 4 {
+	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || cookie.Expires.IsZero() || len(cookieStrings) != 3 {
 		return nil, invalidSessionCookie()
 	}
-	id, username, ip, hash := cookieStrings[0], cookieStrings[1], cookieStrings[2], cookieStrings[3]
+	id, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
 	if cookie.Expires.Before(time.Now()) {
 		return nil, sessionExpiredError(id)
 	}
-	session := &Session{id: id, ip: ip, username: username, expireTime: cookie.Expires, lock: &sync.RWMutex{}}
-	hashCheck := hashString(session.dataPayload())
-	if len(id) < sessionIDLength || strings.Compare(hash, hashCheck) != 0 {
+	session := &Session{id: id, username: username, sessionID: sessionID, expireTime: cookie.Expires, lock: &sync.RWMutex{}}
+	if len(id) < selectorIDLength || len(sessionID) < sessionIDLength {
 		return nil, invalidSessionCookie()
 	}
 	return session, nil
 }
 
-func (s *Session) string() string {
+func (s *Session) cookieValue() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	hash := hashString(s.dataPayload())
-	return url.QueryEscape(s.id + "|" + s.username + "|" + s.ip + "|" + hash)
+	return url.QueryEscape(s.id + "|" + s.username + "|" + s.sessionID)
 }
 
-func (s *Session) dataPayload() string {
+func (s *Session) hashPayload() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.username + s.id + s.ip
+	return s.username + s.id
 }
 
 // GetID returns the session's ID
@@ -89,13 +75,6 @@ func (s *Session) getID() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.id
-}
-
-// GetIP returns the IP address associated with the session.
-func (s *Session) getIP() string {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	return s.ip
 }
 
 // GetUsername returns the username of the account to which the session is associated.
