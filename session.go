@@ -118,5 +118,5 @@ func (s *Session) IsExpired() bool {
 func (s *Session) updateExpireTime() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.expireTime = s.expireTime.Add(maxLifetime)
+	s.expireTime = time.Now().Add(maxLifetime)
 }

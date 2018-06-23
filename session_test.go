@@ -19,13 +19,13 @@ func TestExpiredSession(t *testing.T) {
 	}
 }
 
-func TestUpdateExpiredTime(t *testing.T) {
+func TestUpdateSessionExpiredTime(t *testing.T) {
 	ses := NewSession("", "", "")
-	firstTime := ses.expireTime.Add(time.Duration(0))
+	firstTime := time.Now().Add(maxLifetime)
 	time.Sleep(time.Microsecond * 2)
 	ses.updateExpireTime()
 
-	if ses.expireTime.Equal(firstTime) {
+	if ses.expireTime.Before(firstTime) {
 		t.Fatal("Expired time not updated properly")
 	}
 }
