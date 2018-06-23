@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"time"
-
-	"github.com/dadamssolutions/seshandler/session"
 )
 
 const (
@@ -18,10 +16,10 @@ const (
 
 type dataAccessLayer interface {
 	createTable() error
-	insertSession() (*session.Session, error)
-	updateSession(*session.Session, time.Duration) error
-	destroySession(*session.Session) error
-	validateSession(*session.Session) error
+	insertSession() (*Session, error)
+	updateSession(*Session, time.Duration) error
+	destroySession(*Session) error
+	validateSession(*Session) error
 }
 
 type sesAccess struct {
@@ -50,7 +48,7 @@ func (s sesAccess) createTable() error {
 	return tx.Commit()
 }
 
-func (s sesAccess) insertSession() (*session.Session, error) {
+func (s sesAccess) insertSession() (*Session, error) {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()
@@ -61,7 +59,7 @@ func (s sesAccess) insertSession() (*session.Session, error) {
 
 }
 
-func (s sesAccess) destroySession(session *session.Session) error {
+func (s sesAccess) destroySession(session *Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()
@@ -71,22 +69,22 @@ func (s sesAccess) destroySession(session *session.Session) error {
 	return tx.Commit()
 }
 
-func (s sesAccess) updateSession(session *session.Session, maxLifetime time.Duration) error {
+func (s sesAccess) updateSession(session *Session, maxLifetime time.Duration) error {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	_, err = tx.Exec(updateSession, session.GetExpireTime().Add(maxLifetime), session.GetID())
+	_, err = tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), session.getID())
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	session.UpdateExpireTime(maxLifetime)
+	session.updateExpireTime(maxLifetime)
 	return tx.Commit()
 }
 
-func (s sesAccess) validateSession(session *session.Session) error {
+func (s sesAccess) validateSession(session *Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		tx.Rollback()

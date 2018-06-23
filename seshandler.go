@@ -3,8 +3,6 @@ package seshandler
 import (
 	"database/sql"
 	"time"
-
-	"github.com/dadamssolutions/seshandler/session"
 )
 
 // SesHandler creates and maintains session in a database.
@@ -30,7 +28,7 @@ func newSesHandler(da dataAccessLayer, timeout time.Duration) (*SesHandler, erro
 }
 
 // IsValidSession determines if the given session is valid.
-func (sh *SesHandler) IsValidSession(session *session.Session) bool {
+func (sh *SesHandler) IsValidSession(session *Session) bool {
 	if err := sh.dataAccess.validateSession(session); err != nil {
 		return false
 	}
@@ -38,6 +36,6 @@ func (sh *SesHandler) IsValidSession(session *session.Session) bool {
 }
 
 // UpdateSession sets the expiration of the session to time.Now.
-func (sh *SesHandler) UpdateSession(session *session.Session) error {
+func (sh *SesHandler) UpdateSession(session *Session) error {
 	return sh.dataAccess.updateSession(session, sh.maxLifetime)
 }

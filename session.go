@@ -1,4 +1,4 @@
-package session
+package seshandler
 
 import (
 	"crypto/sha256"
@@ -31,12 +31,12 @@ func hashString(data string) string {
 }
 
 // NewSession creates a new session with the given information
-func NewSession(id, ip, username string, maxLifetime time.Duration) *Session {
+func newSession(id, ip, username string, maxLifetime time.Duration) *Session {
 	return &Session{id: id, ip: ip, username: username, expireTime: time.Now().Add(maxLifetime), lock: &sync.RWMutex{}}
 }
 
 // ParseSession parses string that would come from a cookie into a Session struct.
-func ParseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) {
+func parseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	// No session cookie available
 	if err != nil {
@@ -46,10 +46,10 @@ func ParseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) 
 }
 
 // SessionCookie builds a cookie from the Session struct
-func (s *Session) SessionCookie(maxLifetime time.Duration) *http.Cookie {
+func (s *Session) sessionCookie(maxLifetime time.Duration) *http.Cookie {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	cookie := http.Cookie{Name: sessionCookieName, Value: s.String(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
+	cookie := http.Cookie{Name: sessionCookieName, Value: s.string(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
 	return &cookie
 }
 
@@ -71,7 +71,7 @@ func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
 	return session, nil
 }
 
-func (s *Session) String() string {
+func (s *Session) string() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	hash := hashString(s.dataPayload())
@@ -85,40 +85,40 @@ func (s *Session) dataPayload() string {
 }
 
 // GetID returns the session's ID
-func (s *Session) GetID() string {
+func (s *Session) getID() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.id
 }
 
 // GetIP returns the IP address associated with the session.
-func (s *Session) GetIP() string {
+func (s *Session) getIP() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.ip
 }
 
 // GetUsername returns the username of the account to which the session is associated.
-func (s *Session) GetUsername() string {
+func (s *Session) getUsername() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.username
 }
 
 // GetExpireTime returns the time that the session will expire.
-func (s *Session) GetExpireTime() time.Time {
+func (s *Session) getExpireTime() time.Time {
 	return s.expireTime
 }
 
 // IsExpired returns whether the session is expired.
-func (s *Session) IsExpired() bool {
+func (s *Session) isExpired() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return !time.Now().Before(s.expireTime)
 }
 
 // UpdateExpireTime updates the time that the session expires
-func (s *Session) UpdateExpireTime(maxLifetime time.Duration) time.Time {
+func (s *Session) updateExpireTime(maxLifetime time.Duration) time.Time {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.expireTime = time.Now().Add(maxLifetime)

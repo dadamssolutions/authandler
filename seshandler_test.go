@@ -5,8 +5,6 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/dadamssolutions/seshandler/session"
 )
 
 var timeout = time.Second
@@ -21,28 +19,28 @@ func (f FakeDataAccess) createTable() error {
 	}
 	return nil
 }
-func (f FakeDataAccess) insertSession() (*session.Session, error) {
+func (f FakeDataAccess) insertSession() (*Session, error) {
 	if f.err {
 		return nil, databaseAccessError()
 	}
 	return nil, nil
 }
-func (f FakeDataAccess) updateSession(session *session.Session, maxLifetime time.Duration) error {
+func (f FakeDataAccess) updateSession(session *Session, maxLifetime time.Duration) error {
 	if f.err {
 		return databaseAccessError()
 	}
-	session.UpdateExpireTime(maxLifetime)
+	session.updateExpireTime(maxLifetime)
 	return nil
 }
-func (f FakeDataAccess) destroySession(session *session.Session) error {
+func (f FakeDataAccess) destroySession(session *Session) error {
 	if f.err {
 		return databaseAccessError()
 	}
 	return nil
 }
-func (f FakeDataAccess) validateSession(session *session.Session) error {
+func (f FakeDataAccess) validateSession(session *Session) error {
 	if f.err {
-		return sessionNotFoundError(session.GetID())
+		return sessionNotFoundError(session.getID())
 	}
 	return nil
 }
@@ -64,11 +62,11 @@ func TestUpdateExpiredTime(t *testing.T) {
 	// We should get an update to expiration time.
 	da := FakeDataAccess{false}
 	sh, _ := newSesHandler(&da, timeout)
-	session := session.NewSession("", "", "", sh.maxLifetime)
+	session := newSession("", "", "", sh.maxLifetime)
 	now := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
 	err := sh.UpdateSession(session)
-	if err != nil || session.GetExpireTime().Before(now) {
+	if err != nil || session.getExpireTime().Before(now) {
 		log.Fatal("Session expiration not updated.")
 	}
 
@@ -77,7 +75,7 @@ func TestUpdateExpiredTime(t *testing.T) {
 	nowt := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
 	err = sh.UpdateSession(session)
-	if err == nil || nowt.Before(session.GetExpireTime()) {
+	if err == nil || nowt.Before(session.getExpireTime()) {
 		log.Fatal("Session expiration update unexpected.")
 	}
 }
