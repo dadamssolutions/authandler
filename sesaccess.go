@@ -1,21 +1,23 @@
 package seshandler
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
+	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const (
 	databaseCreation = "CREATE TABLE IF NOT EXISTS sessions (id char(16) NOT NULL, session_hash char(64) NOT NULL, user_id NOT NULL, expiration timestamp, PRIMARY KEY (id);"
+	insertSession    = "INSERT INTO sessions(id, session_hash, user_id, expiration) VALUES($1, $2, $3, $4);"
 	getSessionInfo   = "SELECT (id, session_hash, user_id, expiration) FROM sessions WHERE id = $1;"
 	updateSession    = "UPDATE sessions SET expiration = $1 WHERE id_hash = $2;"
 )
 
 type dataAccessLayer interface {
 	createTable() error
-	insertSession() (*Session, error)
+	createSession(string, time.Duration) (*Session, error)
 	updateSession(*Session, time.Duration) error
 	destroySession(*Session) error
 	validateSession(*Session) error
@@ -23,14 +25,6 @@ type dataAccessLayer interface {
 
 type sesAccess struct {
 	*sql.DB
-}
-
-func enerateID() string {
-	b := make([]byte, selectorIDLength)
-	if _, err := rand.Read(b); err != nil {
-		return ""
-	}
-	return base64.URLEncoding.EncodeToString(b)
 }
 
 func (s sesAccess) createTable() error {
@@ -47,13 +41,32 @@ func (s sesAccess) createTable() error {
 	return tx.Commit()
 }
 
-func (s sesAccess) insertSession() (*Session, error) {
-	tx, err := s.Begin()
-	if err != nil {
-		tx.Rollback()
-		return nil, err
+func (s sesAccess) createSession(username string, maxLifetime time.Duration) (*Session, error) {
+	var id, sessionID string
+	var err error
+	var tx *sql.Tx
+	var session *Session
+	for true {
+		id, sessionID = generateSelectorID(), generateSessionID()
+		tx, err = s.Begin()
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+		session = newSession(id, sessionID, username, maxLifetime)
+		_, err = tx.Exec(insertSession, session.getID(), hashString(session.hashPayload()), username, session.getExpireTime())
+		if err != nil {
+			if e, ok := err.(pq.Error); ok {
+				// This error code means that the uniqueness of id has been violated
+				// We try again in this case.
+				if strings.Compare(string(e.Code), "23505") == 0 {
+					continue
+				}
+			}
+			tx.Rollback()
+			return nil, err
+		}
 	}
-	// TODO
 	return nil, tx.Commit()
 
 }

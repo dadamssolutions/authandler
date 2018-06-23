@@ -3,6 +3,7 @@ package seshandler
 import (
 	"log"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,17 +14,18 @@ type FakeDataAccess struct {
 	err bool
 }
 
+// Fake functions to satisfy data access interface.
 func (f FakeDataAccess) createTable() error {
 	if f.err {
 		return databaseTableCreationError()
 	}
 	return nil
 }
-func (f FakeDataAccess) insertSession() (*Session, error) {
+func (f FakeDataAccess) createSession(username string, maxLifetime time.Duration) (*Session, error) {
 	if f.err {
 		return nil, databaseAccessError()
 	}
-	return nil, nil
+	return newSession(generateSelectorID(), generateSessionID(), username, maxLifetime), nil
 }
 func (f FakeDataAccess) updateSession(session *Session, maxLifetime time.Duration) error {
 	if f.err {
@@ -49,12 +51,12 @@ func TestTableCreation(t *testing.T) {
 	da := FakeDataAccess{true}
 	_, err := newSesHandler(da, 0)
 	if err == nil {
-		t.Fatal("Expected an error in creating the database table.")
+		t.Fatalf("Expected an error in creating the database table.")
 	}
 	da.err = false
 	_, err = newSesHandler(da, 0)
 	if err != nil {
-		t.Fatal("Unexpected error in creating the database table.")
+		t.Fatalf("Unexpected error in creating the database table.")
 	}
 }
 
@@ -78,6 +80,29 @@ func TestUpdateExpiredTime(t *testing.T) {
 	if err == nil || nowt.Before(session.getExpireTime()) {
 		log.Fatal("Session expiration update unexpected.")
 	}
+}
+
+func TestIDGenerators(t *testing.T) {
+	id := generateSelectorID()
+	if len(id) != selectorIDLength {
+		log.Fatalf("Selector ID is not of the expected length. %v != %v", len(id), selectorIDLength)
+	}
+
+	id = generateSessionID()
+	if len(generateSessionID()) != sessionIDLength {
+		log.Fatalf("Session ID is not of the expected length. %v != %v", len(id), sessionIDLength)
+	}
+}
+
+func TestCreateSession(t *testing.T) {
+	da := FakeDataAccess{false}
+	sh, _ := newSesHandler(&da, timeout)
+	now := time.Now()
+	s, err := sh.CreateSession("thedadams")
+	if err != nil || s == nil || strings.Compare(s.getUsername(), "thedadams") != 0 || len(s.id) != selectorIDLength || len(s.sessionID) != sessionIDLength || s.getExpireTime().Before(now) || s.isExpired() {
+		log.Fatal("Session not created properly")
+	}
+
 }
 
 func TestMain(m *testing.M) {
