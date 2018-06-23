@@ -13,7 +13,7 @@ type SesHandler struct {
 
 // NewSesHandlerWithDB creates a new session handler.
 // The database connection should be a pointer to the database connection
-// user in the rest of the app, for concurrency purposes.
+// used in the rest of the app, for concurrency purposes.
 // If timeout < 0, then it is set to 0.
 func NewSesHandlerWithDB(db *sql.DB, timeout time.Duration) (*SesHandler, error) {
 	return newSesHandler(sesAccess{db}, timeout)
