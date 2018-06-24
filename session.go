@@ -42,7 +42,7 @@ func parseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) 
 }
 
 // SessionCookie builds a cookie from the Session struct
-func (s *Session) sessionCookie(maxLifetime time.Duration) (*http.Cookie, error) {
+func (s *Session) sessionCookie() (*http.Cookie, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	if !s.isValid() {
