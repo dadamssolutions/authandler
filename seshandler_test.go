@@ -1,6 +1,7 @@
 package seshandler
 
 import (
+	"database/sql"
 	"log"
 	"os"
 	"strings"
@@ -8,77 +9,28 @@ import (
 	"time"
 )
 
-var timeout = time.Second
-
-type FakeDataAccess struct {
-	err bool
-}
-
-// Fake functions to satisfy data access interface.
-func (f FakeDataAccess) createTable() error {
-	if f.err {
-		return databaseTableCreationError()
-	}
-	return nil
-}
-func (f FakeDataAccess) createSession(username string, maxLifetime time.Duration, sessionOnly bool) (*Session, error) {
-	if f.err {
-		return nil, databaseAccessError()
-	}
-	return newSession(generateSelectorID(), generateSessionID(), username, maxLifetime), nil
-}
-func (f FakeDataAccess) updateSession(session *Session, maxLifetime time.Duration) error {
-	if f.err {
-		return databaseAccessError()
-	}
-	session.updateExpireTime(maxLifetime)
-	return nil
-}
-func (f FakeDataAccess) destroySession(session *Session) error {
-	if f.err {
-		return databaseAccessError()
-	}
-	session.destroy()
-	return nil
-}
-func (f FakeDataAccess) validateSession(session *Session) error {
-	if f.err {
-		return sessionNotFoundError(session.getID())
-	}
-	return nil
-}
-
-func TestTableCreation(t *testing.T) {
-	da := FakeDataAccess{true}
-	_, err := newSesHandler(da, 0)
-	if err == nil {
-		t.Fatalf("Expected an error in creating the database table.")
-	}
-	da.err = false
-	_, err = newSesHandler(da, 0)
-	if err != nil {
-		t.Fatalf("Unexpected error in creating the database table.")
-	}
-}
+var timeout = time.Minute
+var db, err = sql.Open("postgres", "user=test dbname=postgres sslmode=disable")
+var da = &sesAccess{db}
+var sessionNotInDatabase = newSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nonone", timeout)
+var sessionInDatabase *Session
 
 func TestUpdateExpiredTime(t *testing.T) {
 	// We should get an update to expiration time.
-	da := FakeDataAccess{false}
-	sh, _ := newSesHandler(&da, timeout)
-	session := newSession("", "", "", sh.maxLifetime)
+	sh, _ := newSesHandler(da, timeout)
 	now := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
-	err := sh.UpdateSession(session)
-	if err != nil || session.getExpireTime().Before(now) {
+	err := sh.UpdateSession(sessionInDatabase)
+	if err != nil || sessionInDatabase.getExpireTime().Before(now) {
+		log.Println(err)
 		log.Fatal("Session expiration not updated.")
 	}
 
 	// Now we should not get an update to expiration time.
-	da.err = true
 	nowt := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
-	err = sh.UpdateSession(session)
-	if err == nil || nowt.Before(session.getExpireTime()) {
+	err = sh.UpdateSession(sessionNotInDatabase)
+	if err == nil || nowt.Before(sessionNotInDatabase.getExpireTime()) {
 		log.Fatal("Session expiration update unexpected.")
 	}
 }
@@ -96,34 +48,52 @@ func TestIDGenerators(t *testing.T) {
 }
 
 func TestCreateSession(t *testing.T) {
-	da := FakeDataAccess{false}
-	sh, _ := newSesHandler(&da, timeout)
-	now := time.Now()
+	sh, _ := newSesHandler(da, timeout)
 	s, err := sh.CreateSession("thedadams", false)
-	if err != nil || s == nil || strings.Compare(s.getUsername(), "thedadams") != 0 || len(s.id) != selectorIDLength || len(s.sessionID) != sessionIDLength || s.getExpireTime().Before(now) || s.isExpired() {
+	if err != nil || !s.isValid() || s.isSessionOnly() {
 		log.Fatal("Session not created properly")
 	}
 
+	s, err = sh.CreateSession("thedadams", true)
+	if err != nil || !s.isValid() || !s.isSessionOnly() {
+		log.Fatal("Session not created properly")
+	}
 }
 
 func TestDestroySession(t *testing.T) {
-	da := FakeDataAccess{false}
-	sh, _ := newSesHandler(&da, timeout)
-	s, err := sh.CreateSession("thedadams", false)
+	sh, _ := newSesHandler(da, timeout)
+	s, err := sh.CreateSession("anyone", false)
 	err = sh.DestroySession(s)
 	if s.isValid() || err != nil {
+		log.Println(err)
 		log.Fatal("Session not destroyed.")
 	}
-
-	s, _ = sh.CreateSession("thedadams", false)
-	da.err = true
-	err = sh.DestroySession(s)
-	if !s.isValid() || err == nil {
+	sessionNotInDatabase.destroyed = false
+	err = sh.DestroySession(sessionNotInDatabase)
+	if !sessionNotInDatabase.isValid() || err == nil {
+		log.Println(err)
 		log.Fatal("Session destroyed unexpectedly.")
 	}
 }
 
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	os.Exit(m.Run())
+	if err != nil {
+		log.Fatal(err)
+	}
+	da := sesAccess{db}
+	err = da.createTable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	sessionInDatabase, err = da.createSession("thedadams", timeout, false)
+	if err != nil {
+		log.Fatal(err)
+	}
+	num := m.Run()
+	err = da.dropTable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	os.Exit(num)
 }

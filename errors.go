@@ -26,7 +26,6 @@ func sessionExpiredError(sessionID string) error {
 	return errors.New("The session ID " + sessionID + " is expired")
 }
 
-// This is only used in testing
-func databaseAccessError() error {
-	return errors.New("Cannot access database")
+func sessionNotInDatabaseError(id string) error {
+	return errors.New("Session with selector ID " + id + " was not found in the database")
 }

@@ -103,7 +103,13 @@ func (s *Session) getExpireTime() time.Time {
 func (s *Session) isExpired() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return !time.Now().Before(s.cookie.Expires) && !s.cookie.Expires.IsZero()
+	return s.cookie.Expires.Before(time.Now()) && !s.isSessionOnly()
+}
+
+func (s *Session) isSessionOnly() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.cookie.Expires.IsZero() && s.cookie.MaxAge == 0
 }
 
 func (s *Session) markSessionExpired() {
