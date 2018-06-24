@@ -8,20 +8,29 @@ import (
 	"time"
 )
 
+// TODO: Make session a cookie and get rid of some of the parsing.
+
 // Session type represents an HTTP session.
 type Session struct {
-	id         string
-	sessionID  string
-	username   string
-	destroyed  bool
-	expireTime time.Time
+	cookie    *http.Cookie
+	id        string
+	sessionID string
+	username  string
+	destroyed bool
 
 	lock *sync.RWMutex
 }
 
 // NewSession creates a new session with the given information
 func newSession(id, sessionID, username string, maxLifetime time.Duration) *Session {
-	return &Session{id: id, sessionID: sessionID, username: username, expireTime: time.Now().Add(maxLifetime), lock: &sync.RWMutex{}}
+	s := &Session{id: id, sessionID: sessionID, username: username, lock: &sync.RWMutex{}}
+	c := &http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true}
+	s.cookie = c
+	if maxLifetime != 0 {
+		c.Expires = time.Now().Add(maxLifetime)
+		c.MaxAge = int(maxLifetime / time.Second)
+	}
+	return s
 }
 
 // ParseSession parses string that would come from a cookie into a Session struct.
@@ -41,8 +50,7 @@ func (s *Session) sessionCookie(maxLifetime time.Duration) (*http.Cookie, error)
 	if !s.isValid() {
 		return nil, invalidSessionCookie()
 	}
-	cookie := http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
-	return &cookie, nil
+	return s.cookie, nil
 }
 
 func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
@@ -58,7 +66,7 @@ func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
 	if len(id) < selectorIDLength || len(sessionID) < sessionIDLength {
 		return nil, invalidSessionCookie()
 	}
-	session := &Session{id: id, username: username, sessionID: sessionID, expireTime: cookie.Expires, lock: &sync.RWMutex{}}
+	session := &Session{cookie: cookie, id: id, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
 	return session, nil
 }
 
@@ -90,22 +98,21 @@ func (s *Session) getUsername() string {
 
 // GetExpireTime returns the time that the session will expire.
 func (s *Session) getExpireTime() time.Time {
-	return s.expireTime
+	return s.cookie.Expires
 }
 
 // IsExpired returns whether the session is expired.
 func (s *Session) isExpired() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return !time.Now().Before(s.expireTime)
+	return !time.Now().Before(s.cookie.Expires) && !s.cookie.Expires.IsZero()
 }
 
 // UpdateExpireTime updates the time that the session expires
-func (s *Session) updateExpireTime(maxLifetime time.Duration) time.Time {
+func (s *Session) updateExpireTime(maxLifetime time.Duration) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.expireTime = time.Now().Add(maxLifetime)
-	return s.expireTime
+	s.cookie.Expires = time.Now().Add(maxLifetime)
 }
 
 func (s *Session) destroy() {
