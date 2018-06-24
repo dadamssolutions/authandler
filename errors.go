@@ -21,3 +21,7 @@ func sessionExpiredError(sessionID string) error {
 func sessionNotInDatabaseError(id string) error {
 	return errors.New("Session with selector ID " + id + " was not found in the database")
 }
+
+func noSessionCookieFoundInRequest() error {
+	return errors.New("No session cookie was found in request")
+}

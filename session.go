@@ -1,6 +1,7 @@
 package seshandler
 
 import (
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -32,11 +33,11 @@ func newSession(id, sessionID, username string, maxLifetime time.Duration) *Sess
 }
 
 // ParseSession parses string that would come from a cookie into a Session struct.
-func parseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) {
+func parseSession(r *http.Request) (*Session, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	// No session cookie available
 	if err != nil {
-		return nil, err
+		return nil, noSessionCookieFoundInRequest()
 	}
 	return parseSessionFromCookie(cookie)
 }
@@ -54,11 +55,13 @@ func (s *Session) sessionCookie() (*http.Cookie, error) {
 func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
-	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || cookie.Expires.IsZero() || len(cookieStrings) != 3 {
+	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || len(cookieStrings) != 3 {
+		log.Println("Cookie string does not have the required parts")
 		return nil, invalidSessionCookie()
 	}
 	id, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
-	if cookie.Expires.Before(time.Now()) {
+	if !cookie.Expires.IsZero() && cookie.Expires.Before(time.Now()) {
+		log.Println("This session we parsed is expired")
 		return nil, sessionExpiredError(id)
 	}
 	if len(id) < selectorIDLength || len(sessionID) < sessionIDLength {
@@ -141,4 +144,13 @@ func (s *Session) isValid() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return !s.isDestroyed() && !s.isExpired()
+}
+
+// Equals returns whether other session is equal to this session
+func (s *Session) Equals(other *Session) bool {
+	s.lock.RLock()
+	other.lock.RLock()
+	defer s.lock.RUnlock()
+	defer other.lock.RUnlock()
+	return strings.Compare(s.getID(), other.getID()) == 0 && strings.Compare(s.getUsername(), other.getUsername()) == 0 && strings.Compare(s.sessionID, other.sessionID) == 0 && s.destroyed == other.destroyed && s.getExpireTime().Equal(other.getExpireTime())
 }
