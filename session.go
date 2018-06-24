@@ -120,5 +120,5 @@ func (s *Session) isDestroyed() bool {
 func (s *Session) isValid() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.isDestroyed() && s.isExpired()
+	return !s.isDestroyed() && !s.isExpired()
 }

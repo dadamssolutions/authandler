@@ -110,14 +110,15 @@ func TestDestroySession(t *testing.T) {
 	da := FakeDataAccess{false}
 	sh, _ := newSesHandler(&da, timeout)
 	s, err := sh.CreateSession("thedadams")
-	sh.DestroySession(s)
+	err = sh.DestroySession(s)
 	if s.isValid() || err != nil {
 		log.Fatal("Session not destroyed.")
 	}
 
+	s, _ = sh.CreateSession("thedadams")
 	da.err = true
 	err = sh.DestroySession(s)
-	if s.isValid() || err == nil {
+	if !s.isValid() || err == nil {
 		log.Fatal("Session destroyed unexpectedly.")
 	}
 }
