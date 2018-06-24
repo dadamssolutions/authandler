@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// TODO: Make session a cookie and get rid of some of the parsing.
-
 // Session type represents an HTTP session.
 type Session struct {
 	cookie    *http.Cookie
