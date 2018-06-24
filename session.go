@@ -35,11 +35,14 @@ func parseSession(r *http.Request, maxLifetime time.Duration) (*Session, error) 
 }
 
 // SessionCookie builds a cookie from the Session struct
-func (s *Session) sessionCookie(maxLifetime time.Duration) *http.Cookie {
+func (s *Session) sessionCookie(maxLifetime time.Duration) (*http.Cookie, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
+	if !s.isValid() {
+		return nil, invalidSessionCookie()
+	}
 	cookie := http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, Expires: s.expireTime, MaxAge: int(maxLifetime)}
-	return &cookie
+	return &cookie, nil
 }
 
 func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
@@ -52,10 +55,10 @@ func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
 	if cookie.Expires.Before(time.Now()) {
 		return nil, sessionExpiredError(id)
 	}
-	session := &Session{id: id, username: username, sessionID: sessionID, expireTime: cookie.Expires, lock: &sync.RWMutex{}}
 	if len(id) < selectorIDLength || len(sessionID) < sessionIDLength {
 		return nil, invalidSessionCookie()
 	}
+	session := &Session{id: id, username: username, sessionID: sessionID, expireTime: cookie.Expires, lock: &sync.RWMutex{}}
 	return session, nil
 }
 
