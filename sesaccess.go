@@ -10,12 +10,12 @@ import (
 )
 
 const (
-	tableCreation     = "CREATE TABLE IF NOT EXISTS sessions (id char(16), session_hash char(64) NOT NULL, user_id varchar NOT NULL, created timestamp NOT NULL, expiration timestamp NOT NULL, session_only boolean NOT NULL, PRIMARY KEY (id));"
+	tableCreation     = "CREATE TABLE IF NOT EXISTS sessions (id char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp NOT NULL, expiration timestamp NOT NULL, session_only boolean NOT NULL, PRIMARY KEY (id));"
 	dropTable         = "DROP TABLE sessions;"
 	insertSession     = "INSERT INTO sessions(id, session_hash, user_id, created, expiration, session_only) VALUES($1, $2, $3, $4, $5, $6);"
 	userSessionExists = "SELECT count(*) FROM sessions WHERE user_id = $1;"
 	deleteSession     = "DELETE FROM sessions WHERE id = $1 AND session_hash = $2 AND user_id = $3;"
-	getSessionInfo    = "SELECT (id, session_hash, user_id, expiration) FROM sessions WHERE id = $1;"
+	getSessionInfo    = "SELECT id, session_hash, user_id, expiration, session_only FROM sessions WHERE id = $1;"
 	updateSession     = "UPDATE sessions SET expiration = $1 WHERE session_hash = $2;"
 )
 
@@ -99,7 +99,6 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration, ses
 func (s sesAccess) sessionExistsForUser(username string) (bool, error) {
 	tx, err := s.Begin()
 	if err != nil {
-		tx.Rollback()
 		return true, err
 	}
 	var count int
@@ -120,15 +119,11 @@ func (s sesAccess) destroySession(session *Session) error {
 		log.Println(err)
 		return err
 	}
-	result, err := tx.Exec(deleteSession, session.getID(), hashString(session.hashPayload()), session.getUsername())
+	_, err = tx.Exec(deleteSession, session.getID(), hashString(session.hashPayload()), session.getUsername())
 	if err != nil {
 		tx.Rollback()
 		log.Println(err)
 		return err
-	}
-	if num, _ := result.RowsAffected(); num == 0 {
-		tx.Rollback()
-		return sessionNotInDatabaseError(session.getID())
 	}
 	session.destroy()
 	return tx.Commit()
@@ -137,18 +132,13 @@ func (s sesAccess) destroySession(session *Session) error {
 func (s sesAccess) updateSession(session *Session, maxLifetime time.Duration) error {
 	tx, err := s.Begin()
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
-	result, err := tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), hashString(session.hashPayload()))
+	_, err = tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), hashString(session.hashPayload()))
 
 	if err != nil {
 		tx.Rollback()
 		return err
-	}
-	if num, _ := result.RowsAffected(); num == 0 {
-		tx.Rollback()
-		return sessionNotInDatabaseError(session.getID())
 	}
 	session.updateExpireTime(maxLifetime)
 	return tx.Commit()
@@ -157,9 +147,17 @@ func (s sesAccess) updateSession(session *Session, maxLifetime time.Duration) er
 func (s sesAccess) validateSession(session *Session) error {
 	tx, err := s.Begin()
 	if err != nil {
-		tx.Rollback()
+		log.Println(err)
 		return err
 	}
-	// TODO
+	dbSession := newSession("", "", "", 0)
+	var dbHash string
+	var sessionOnly bool
+	err = tx.QueryRow(getSessionInfo, session.getID()).Scan(&dbSession.id, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &sessionOnly)
+	if err != nil || strings.Compare(hashString(session.hashPayload()), dbHash) != 0 || session.isSessionOnly() != sessionOnly {
+		tx.Rollback()
+		s.destroySession(session)
+		return sessionNotInDatabaseError(dbSession.getID())
+	}
 	return tx.Commit()
 }

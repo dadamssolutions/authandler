@@ -70,18 +70,24 @@ func (sh *SesHandler) CreateSession(username string, sessionOnly bool) (*Session
 // DestroySession gets rid of a session, if it exists in the database.
 // If destroy is successful, the session pointer is set to nil.
 func (sh *SesHandler) DestroySession(session *Session) error {
+	if ok, err := sh.IsValidSession(session); !ok {
+		return err
+	}
 	return sh.dataAccess.destroySession(session)
 }
 
 // IsValidSession determines if the given session is valid.
-func (sh *SesHandler) IsValidSession(session *Session) bool {
+func (sh *SesHandler) IsValidSession(session *Session) (bool, error) {
 	if err := sh.dataAccess.validateSession(session); err != nil {
-		return false
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
 // UpdateSession sets the expiration of the session to time.Now.
 func (sh *SesHandler) UpdateSession(session *Session) error {
+	if ok, err := sh.IsValidSession(session); !ok {
+		return err
+	}
 	return sh.dataAccess.updateSession(session, sh.maxLifetime)
 }

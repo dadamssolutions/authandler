@@ -70,7 +70,7 @@ func TestDestroySession(t *testing.T) {
 	}
 	sessionNotInDatabase.destroyed = false
 	err = sh.DestroySession(sessionNotInDatabase)
-	if !sessionNotInDatabase.isValid() || err == nil {
+	if sessionNotInDatabase.isValid() || err == nil {
 		log.Println(err)
 		log.Fatal("Session destroyed unexpectedly.")
 	}
