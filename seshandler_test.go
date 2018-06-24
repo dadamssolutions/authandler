@@ -21,7 +21,7 @@ func (f FakeDataAccess) createTable() error {
 	}
 	return nil
 }
-func (f FakeDataAccess) createSession(username string, maxLifetime time.Duration) (*Session, error) {
+func (f FakeDataAccess) createSession(username string, maxLifetime time.Duration, sessionOnly bool) (*Session, error) {
 	if f.err {
 		return nil, databaseAccessError()
 	}
@@ -99,7 +99,7 @@ func TestCreateSession(t *testing.T) {
 	da := FakeDataAccess{false}
 	sh, _ := newSesHandler(&da, timeout)
 	now := time.Now()
-	s, err := sh.CreateSession("thedadams")
+	s, err := sh.CreateSession("thedadams", false)
 	if err != nil || s == nil || strings.Compare(s.getUsername(), "thedadams") != 0 || len(s.id) != selectorIDLength || len(s.sessionID) != sessionIDLength || s.getExpireTime().Before(now) || s.isExpired() {
 		log.Fatal("Session not created properly")
 	}
@@ -109,13 +109,13 @@ func TestCreateSession(t *testing.T) {
 func TestDestroySession(t *testing.T) {
 	da := FakeDataAccess{false}
 	sh, _ := newSesHandler(&da, timeout)
-	s, err := sh.CreateSession("thedadams")
+	s, err := sh.CreateSession("thedadams", false)
 	err = sh.DestroySession(s)
 	if s.isValid() || err != nil {
 		log.Fatal("Session not destroyed.")
 	}
 
-	s, _ = sh.CreateSession("thedadams")
+	s, _ = sh.CreateSession("thedadams", false)
 	da.err = true
 	err = sh.DestroySession(s)
 	if !s.isValid() || err == nil {

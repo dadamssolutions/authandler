@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	databaseCreation  = "CREATE TABLE IF NOT EXISTS sessions (id char(16) NOT NULL, session_hash char(64) NOT NULL, user_id NOT NULL, expiration timestamp, PRIMARY KEY (id);"
-	insertSession     = "INSERT INTO sessions(id, session_hash, user_id, expiration) VALUES($1, $2, $3, $4);"
+	databaseCreation  = "CREATE TABLE IF NOT EXISTS sessions (id char(16) NOT NULL, session_hash char(64) NOT NULL, user_id NOT NULL, created timestamp, expiration timestamp, session_only boolean, PRIMARY KEY (id);"
+	insertSession     = "INSERT INTO sessions(id, session_hash, user_id, created, expiration, session_only) VALUES($1, $2, $3, $4, $5);"
 	userSessionExists = "SELECT count(*) FROM sessions WHERE user_id = $1"
 	deleteSession     = "DELETE FROM sessions WHERE id = $1 AND session_hash = $2 AND user_id = $3;"
 	getSessionInfo    = "SELECT (id, session_hash, user_id, expiration) FROM sessions WHERE id = $1;"
@@ -19,7 +19,7 @@ const (
 
 type dataAccessLayer interface {
 	createTable() error
-	createSession(string, time.Duration) (*Session, error)
+	createSession(string, time.Duration, bool) (*Session, error)
 	updateSession(*Session, time.Duration) error
 	destroySession(*Session) error
 	validateSession(*Session) error
@@ -43,12 +43,9 @@ func (s sesAccess) createTable() error {
 	return tx.Commit()
 }
 
-func (s sesAccess) createSession(username string, maxLifetime time.Duration) (*Session, error) {
-	if exists, err := s.sessionExistsForUser(username); exists {
-		if err == nil {
-			err = sessionForUserExistsError(username)
-		}
-		return nil, err
+func (s sesAccess) createSession(username string, maxLifetime time.Duration, sessionOnly bool) (*Session, error) {
+	if sessionOnly {
+		maxLifetime = 0
 	}
 	var id, sessionID string
 	var err error
@@ -62,7 +59,7 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration) (*S
 			return nil, err
 		}
 		session = newSession(id, sessionID, username, maxLifetime)
-		_, err = tx.Exec(insertSession, session.getID(), hashString(session.hashPayload()), username, session.getExpireTime())
+		_, err = tx.Exec(insertSession, session.getID(), hashString(session.hashPayload()), username, time.Now(), session.getExpireTime(), maxLifetime == 0)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
 				// This error code means that the uniqueness of id has been violated
@@ -75,7 +72,7 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration) (*S
 			return nil, err
 		}
 	}
-	return nil, tx.Commit()
+	return session, tx.Commit()
 }
 
 func (s sesAccess) sessionExistsForUser(username string) (bool, error) {

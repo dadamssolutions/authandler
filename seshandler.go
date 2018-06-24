@@ -63,8 +63,8 @@ func newSesHandler(da dataAccessLayer, timeout time.Duration) (*SesHandler, erro
 }
 
 // CreateSession generates a new session for the given user ID.
-func (sh *SesHandler) CreateSession(username string) (*Session, error) {
-	return sh.dataAccess.createSession(username, sh.maxLifetime)
+func (sh *SesHandler) CreateSession(username string, sessionOnly bool) (*Session, error) {
+	return sh.dataAccess.createSession(username, sh.maxLifetime, sessionOnly)
 }
 
 // DestroySession gets rid of a session, if it exists in the database.
