@@ -108,6 +108,12 @@ func (s *Session) isExpired() bool {
 	return !time.Now().Before(s.cookie.Expires) && !s.cookie.Expires.IsZero()
 }
 
+func (s *Session) markSessionExpired() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.cookie.Expires = time.Now().Add(-1 * time.Second)
+}
+
 // UpdateExpireTime updates the time that the session expires
 func (s *Session) updateExpireTime(maxLifetime time.Duration) {
 	s.lock.Lock()

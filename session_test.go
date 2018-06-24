@@ -23,8 +23,7 @@ func TestExpiredSession(t *testing.T) {
 	if ses.isExpired() {
 		t.Fatal("Session should not be expired")
 	}
-	ses.updateExpireTime(0) // Set expire time to now
-	time.Sleep(time.Microsecond)
+	ses.markSessionExpired()
 	if !ses.isExpired() {
 		t.Fatal("Session should be expired")
 	}
@@ -33,7 +32,7 @@ func TestExpiredSession(t *testing.T) {
 func TestUpdateSessionExpiredTime(t *testing.T) {
 	ses := newSession("", "", "", timeout)
 	firstTime := time.Now().Add(timeout)
-	time.Sleep(time.Microsecond * 2)
+	time.Sleep(time.Microsecond)
 	ses.updateExpireTime(timeout)
 
 	if ses.getExpireTime().Before(firstTime) {
