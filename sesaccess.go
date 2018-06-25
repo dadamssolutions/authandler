@@ -2,7 +2,6 @@ package seshandler
 
 import (
 	"database/sql"
-	"log"
 	"strings"
 	"time"
 
@@ -10,58 +9,46 @@ import (
 )
 
 const (
-	tableCreation     = "CREATE TABLE IF NOT EXISTS sessions (id char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp NOT NULL, expiration timestamp NOT NULL, session_only boolean NOT NULL, PRIMARY KEY (id));"
+	tableCreation     = "CREATE TABLE IF NOT EXISTS sessions (id char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, session_only boolean NOT NULL, PRIMARY KEY (id));"
 	dropTable         = "DROP TABLE sessions;"
 	insertSession     = "INSERT INTO sessions(id, session_hash, user_id, created, expiration, session_only) VALUES($1, $2, $3, $4, $5, $6);"
 	userSessionExists = "SELECT count(*) FROM sessions WHERE user_id = $1;"
-	deleteSession     = "DELETE FROM sessions WHERE id = $1 AND session_hash = $2 AND user_id = $3;"
+	deleteSession     = "DELETE FROM sessions WHERE id = $1;"
 	getSessionInfo    = "SELECT id, session_hash, user_id, expiration, session_only FROM sessions WHERE id = $1;"
-	updateSession     = "UPDATE sessions SET expiration = $1 WHERE session_hash = $2;"
+	updateSession     = "UPDATE sessions SET expiration = $1 WHERE id = $2;"
 )
 
-type dataAccessLayer interface {
-	createTable() error
-	createSession(string, time.Duration, bool) (*Session, error)
-	updateSession(*Session, time.Duration) error
-	destroySession(*Session) error
-	validateSession(*Session) error
-}
-
-type sesAccess struct {
+type sesDataAccess struct {
 	*sql.DB
 }
 
-func (s sesAccess) createTable() error {
+func (s sesDataAccess) createTable() error {
 	tx, err := s.Begin()
 	if err != nil {
-		log.Println(err)
 		return databaseTableCreationError()
 	}
 	_, err = tx.Exec(tableCreation)
 	if err != nil {
-		log.Println(err)
 		tx.Rollback()
 		return databaseTableCreationError()
 	}
 	return tx.Commit()
 }
 
-func (s sesAccess) dropTable() error {
+func (s sesDataAccess) dropTable() error {
 	tx, err := s.Begin()
 	if err != nil {
-		log.Println(err)
 		return databaseTableCreationError()
 	}
 	_, err = tx.Exec(dropTable)
 	if err != nil {
-		log.Println(err)
 		tx.Rollback()
 		return databaseTableCreationError()
 	}
 	return tx.Commit()
 }
 
-func (s sesAccess) createSession(username string, maxLifetime time.Duration, sessionOnly bool) (*Session, error) {
+func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, sessionOnly bool) (*Session, error) {
 	if sessionOnly {
 		maxLifetime = 0
 	}
@@ -73,7 +60,6 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration, ses
 		id, sessionID = generateSelectorID(), generateSessionID()
 		tx, err = s.Begin()
 		if err != nil {
-			log.Println(err)
 			return nil, err
 		}
 		session = newSession(id, sessionID, username, maxLifetime)
@@ -88,7 +74,6 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration, ses
 				}
 			}
 			tx.Rollback()
-			log.Println(err)
 			return nil, err
 		}
 		break
@@ -96,7 +81,7 @@ func (s sesAccess) createSession(username string, maxLifetime time.Duration, ses
 	return session, tx.Commit()
 }
 
-func (s sesAccess) sessionExistsForUser(username string) (bool, error) {
+func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
 	tx, err := s.Begin()
 	if err != nil {
 		return true, err
@@ -113,51 +98,47 @@ func (s sesAccess) sessionExistsForUser(username string) (bool, error) {
 	return count > 0, nil
 }
 
-func (s sesAccess) destroySession(session *Session) error {
+func (s sesDataAccess) destroySession(session *Session) error {
 	tx, err := s.Begin()
 	if err != nil {
-		log.Println(err)
 		return err
 	}
-	_, err = tx.Exec(deleteSession, session.getID(), hashString(session.hashPayload()), session.getUsername())
-	if err != nil {
-		tx.Rollback()
-		log.Println(err)
-		return err
-	}
+
+	tx.Exec(deleteSession, session.getID())
 	session.destroy()
 	return tx.Commit()
 }
 
-func (s sesAccess) updateSession(session *Session, maxLifetime time.Duration) error {
+func (s sesDataAccess) updateSession(session *Session, maxLifetime time.Duration) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), hashString(session.hashPayload()))
+	tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), session.getID())
 
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
 	session.updateExpireTime(maxLifetime)
 	return tx.Commit()
 }
 
-func (s sesAccess) validateSession(session *Session) error {
+func (s sesDataAccess) validateSession(session *Session) error {
 	tx, err := s.Begin()
 	if err != nil {
-		log.Println(err)
 		return err
 	}
-	dbSession := newSession("", "", "", 0)
+	dbSession := newSession("", session.sessionID, "", 0)
 	var dbHash string
 	var sessionOnly bool
 	err = tx.QueryRow(getSessionInfo, session.getID()).Scan(&dbSession.id, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &sessionOnly)
-	if err != nil || strings.Compare(hashString(session.hashPayload()), dbHash) != 0 || session.isSessionOnly() != sessionOnly {
+	if err != nil || !session.Equals(dbSession) {
 		tx.Rollback()
 		s.destroySession(session)
-		return sessionNotInDatabaseError(dbSession.getID())
+		return sessionNotInDatabaseError(session.getID())
 	}
+	if dbSession.isExpired() {
+		tx.Rollback()
+		s.destroySession(session)
+		return sessionExpiredError(session.getID())
+	}
+	session.cookie.Expires = dbSession.getExpireTime()
 	return tx.Commit()
 }

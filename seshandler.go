@@ -6,6 +6,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -42,7 +46,7 @@ func generateSessionID() string {
 
 // SesHandler creates and maintains session in a database.
 type SesHandler struct {
-	dataAccess  dataAccessLayer
+	dataAccess  sesDataAccess
 	maxLifetime time.Duration
 }
 
@@ -51,43 +55,104 @@ type SesHandler struct {
 // used in the rest of the app for concurrency purposes.
 // If timeout < 0, then it is set to 0 (session cookie).
 func NewSesHandlerWithDB(db *sql.DB, timeout time.Duration) (*SesHandler, error) {
-	return newSesHandler(sesAccess{db}, timeout)
+	return newSesHandler(sesDataAccess{db}, timeout)
 }
 
-func newSesHandler(da dataAccessLayer, timeout time.Duration) (*SesHandler, error) {
+func newSesHandler(da sesDataAccess, timeout time.Duration) (*SesHandler, error) {
 	if timeout < 0 {
 		timeout = 0
 	}
+	if da.DB == nil {
+		log.Println("Cannot connect to the database")
+		return nil, badDatabaseConnectionError()
+	}
 	ses := &SesHandler{dataAccess: da, maxLifetime: timeout}
-	return ses, ses.dataAccess.createTable()
+	err := ses.dataAccess.createTable()
+	if err != nil {
+		log.Println(err)
+	}
+	return ses, err
 }
 
 // CreateSession generates a new session for the given user ID.
 func (sh *SesHandler) CreateSession(username string, sessionOnly bool) (*Session, error) {
-	return sh.dataAccess.createSession(username, sh.maxLifetime, sessionOnly)
+	session, err := sh.dataAccess.createSession(username, sh.maxLifetime, sessionOnly)
+	if err != nil {
+		log.Println(err)
+	}
+	return session, err
 }
 
 // DestroySession gets rid of a session, if it exists in the database.
 // If destroy is successful, the session pointer is set to nil.
 func (sh *SesHandler) DestroySession(session *Session) error {
-	if ok, err := sh.IsValidSession(session); !ok {
-		return err
+	err := sh.dataAccess.destroySession(session)
+	if err != nil {
+		log.Println(err)
 	}
-	return sh.dataAccess.destroySession(session)
+	return err
 }
 
 // IsValidSession determines if the given session is valid.
-func (sh *SesHandler) IsValidSession(session *Session) (bool, error) {
+func (sh *SesHandler) IsValidSession(session *Session) bool {
 	if err := sh.dataAccess.validateSession(session); err != nil {
-		return false, err
+		log.Println(err)
+		return false
 	}
-	return true, nil
+	return true
 }
 
 // UpdateSession sets the expiration of the session to time.Now.
 func (sh *SesHandler) UpdateSession(session *Session) error {
-	if ok, err := sh.IsValidSession(session); !ok {
-		return err
+	if ok := sh.IsValidSession(session); !ok {
+		log.Println("Session with ID " + session.getID() + " is not a valid session, so we can't update it")
+		return invalidSessionError(session.getID())
 	}
-	return sh.dataAccess.updateSession(session, sh.maxLifetime)
+	err := sh.dataAccess.updateSession(session, sh.maxLifetime)
+	if err != nil {
+		log.Println(err)
+	}
+	return err
+}
+
+// ParseSessionFromRequest takes a request, determines if there is a valid session cookie,
+// and returns the session, if it exists.
+func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*Session, error) {
+	cookie, err := r.Cookie(sessionCookieName)
+	// No session cookie available
+	if err != nil {
+		log.Println(err)
+		return nil, noSessionCookieFoundInRequest()
+	}
+	session, err := sh.ParseSessionCookie(cookie)
+	if err != nil {
+		log.Println(err)
+	}
+	return session, err
+}
+
+// ParseSessionCookie takes a cookie, determines if there is a valid session cookie,
+// and returns the session, if it exists.
+func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) {
+	unescapedCookie, err := url.QueryUnescape(cookie.Value)
+	cookieStrings := strings.Split(unescapedCookie, "|")
+	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || len(cookieStrings) != 3 {
+		log.Println("Cookie string does not have the required parts")
+		return nil, invalidSessionCookie()
+	}
+
+	id, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
+	session := &Session{cookie: cookie, id: id, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
+	err = sh.dataAccess.validateSession(session)
+	if err != nil {
+		log.Println(err)
+		return nil, invalidSessionCookie()
+	}
+	if session.isExpired() {
+		log.Println("Parsed session " + session.getID() + ", but it is expired at " + session.cookie.Expires.String())
+		log.Println(time.Now())
+		log.Println(session.cookie.Expires.Before(time.Now()))
+		return nil, sessionExpiredError(id)
+	}
+	return session, nil
 }

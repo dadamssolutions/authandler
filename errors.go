@@ -2,16 +2,19 @@ package seshandler
 
 import "errors"
 
+func badDatabaseConnectionError() error {
+	return errors.New("The database connection is not valid")
+}
 func databaseTableCreationError() error {
 	return errors.New("Cannot create sessions table in the database")
 }
 
-func sessionForUserExistsError(username string) error {
-	return errors.New("Session for username " + username + " already exists")
-}
-
 func invalidSessionCookie() error {
 	return errors.New("Cookie does not represent a valid session cookie")
+}
+
+func invalidSessionError(ID string) error {
+	return errors.New("Session with ID " + ID + " is not valid")
 }
 
 func sessionExpiredError(sessionID string) error {

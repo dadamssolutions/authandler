@@ -1,7 +1,6 @@
 package seshandler
 
 import (
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -23,23 +22,13 @@ type Session struct {
 // NewSession creates a new session with the given information
 func newSession(id, sessionID, username string, maxLifetime time.Duration) *Session {
 	s := &Session{id: id, sessionID: sessionID, username: username, lock: &sync.RWMutex{}}
-	c := &http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true}
+	c := &http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime / time.Second)}
 	s.cookie = c
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
 		c.MaxAge = int(maxLifetime / time.Second)
 	}
 	return s
-}
-
-// ParseSession parses string that would come from a cookie into a Session struct.
-func parseSession(r *http.Request) (*Session, error) {
-	cookie, err := r.Cookie(sessionCookieName)
-	// No session cookie available
-	if err != nil {
-		return nil, noSessionCookieFoundInRequest()
-	}
-	return parseSessionFromCookie(cookie)
 }
 
 // SessionCookie builds a cookie from the Session struct
@@ -50,25 +39,6 @@ func (s *Session) sessionCookie() (*http.Cookie, error) {
 		return nil, invalidSessionCookie()
 	}
 	return s.cookie, nil
-}
-
-func parseSessionFromCookie(cookie *http.Cookie) (*Session, error) {
-	unescapedCookie, err := url.QueryUnescape(cookie.Value)
-	cookieStrings := strings.Split(unescapedCookie, "|")
-	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || len(cookieStrings) != 3 {
-		log.Println("Cookie string does not have the required parts")
-		return nil, invalidSessionCookie()
-	}
-	id, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
-	if !cookie.Expires.IsZero() && cookie.Expires.Before(time.Now()) {
-		log.Println("This session we parsed is expired")
-		return nil, sessionExpiredError(id)
-	}
-	if len(id) < selectorIDLength || len(sessionID) < sessionIDLength {
-		return nil, invalidSessionCookie()
-	}
-	session := &Session{cookie: cookie, id: id, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
-	return session, nil
 }
 
 func (s *Session) cookieValue() string {
@@ -112,7 +82,7 @@ func (s *Session) isExpired() bool {
 func (s *Session) isSessionOnly() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.cookie.Expires.IsZero() && s.cookie.MaxAge == 0
+	return s.cookie.Expires.IsZero()
 }
 
 func (s *Session) markSessionExpired() {
@@ -152,5 +122,5 @@ func (s *Session) Equals(other *Session) bool {
 	other.lock.RLock()
 	defer s.lock.RUnlock()
 	defer other.lock.RUnlock()
-	return strings.Compare(s.getID(), other.getID()) == 0 && strings.Compare(s.getUsername(), other.getUsername()) == 0 && strings.Compare(s.sessionID, other.sessionID) == 0 && s.destroyed == other.destroyed && s.getExpireTime().Equal(other.getExpireTime())
+	return strings.Compare(s.getID(), other.getID()) == 0 && strings.Compare(s.getUsername(), other.getUsername()) == 0 && strings.Compare(s.sessionID, other.sessionID) == 0 && s.destroyed == other.destroyed
 }
