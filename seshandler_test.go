@@ -163,6 +163,23 @@ func TestSessionParsingFromCookie(t *testing.T) {
 		t.Fatal("Session cookie should be invalid")
 	}
 }
+
+func TestValidateUserInputs(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		ses := newSession(generateSelectorID(), generateSessionID(), generateRandomString(12), 0)
+		if !sh.validateUserInputs(ses) {
+			t.Fatal("Session should have IDs and username")
+		}
+	}
+
+	for i := 0; i < 100; i++ {
+		ses := newSession(generateSelectorID(), generateSessionID(), generateRandomString(12)+" "+generateRandomString(9), 0)
+		if sh.validateUserInputs(ses) {
+			log.Println(ses)
+			t.Fatal("Session should NOT have IDs and username")
+		}
+	}
+}
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	if err != nil {

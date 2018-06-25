@@ -21,7 +21,7 @@ const (
 
 func hashString(data string) string {
 	hashBytes := sha256.Sum256([]byte(data))
-	return base64.RawURLEncoding.EncodeToString(hashBytes[:])
+	return url.QueryEscape(base64.RawURLEncoding.EncodeToString(hashBytes[:]))
 }
 
 func generateRandomString(length int) string {
@@ -95,6 +95,9 @@ func (sh *SesHandler) DestroySession(session *Session) error {
 
 // IsValidSession determines if the given session is valid.
 func (sh *SesHandler) IsValidSession(session *Session) bool {
+	if !sh.validateUserInputs(session) {
+		return false
+	}
 	if err := sh.dataAccess.validateSession(session); err != nil {
 		log.Println(err)
 		return false
@@ -143,16 +146,26 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) 
 
 	id, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
 	session := &Session{cookie: cookie, id: id, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
-	err = sh.dataAccess.validateSession(session)
-	if err != nil {
-		log.Println(err)
+	if !sh.IsValidSession(session) {
 		return nil, invalidSessionCookie()
 	}
 	if session.isExpired() {
 		log.Println("Parsed session " + session.getID() + ", but it is expired at " + session.cookie.Expires.String())
-		log.Println(time.Now())
-		log.Println(session.cookie.Expires.Before(time.Now()))
 		return nil, sessionExpiredError(id)
 	}
 	return session, nil
+}
+
+func (sh *SesHandler) validateUserInputs(session *Session) bool {
+	s1 := url.QueryEscape(session.getID())
+	s2 := url.QueryEscape(session.getUsername())
+	s3 := url.QueryEscape(session.sessionID)
+	if strings.Compare(s1, session.getID()) != 0 || strings.Compare(s2, session.getUsername()) != 0 || strings.Compare(s3, session.sessionID) != 0 {
+		log.Println("The session has invalid pieces. The user must have altered them:")
+		log.Println(session.getID())
+		log.Println(session.getUsername())
+		log.Println(session.sessionID)
+		return false
+	}
+	return true
 }
