@@ -105,11 +105,27 @@ func (sh *SesHandler) UpdateSessionIfValid(session *Session) error {
 		log.Println("Session with selector ID " + session.getSelectorID() + " is not a valid session, so we can't update it")
 		return invalidSessionError(session.getSelectorID())
 	}
-	err := sh.dataAccess.updateSession(session, sh.maxLifetime)
-	if err != nil {
-		log.Println(err)
+	if session.isPersistant() {
+		err := sh.dataAccess.updateSession(session, sh.maxLifetime)
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+	} else {
+		err := sh.DestroySession(session)
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		newerSession, err := sh.CreateSession(session.username, false)
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		session.selectorID, session.sessionID = newerSession.selectorID, newerSession.sessionID
+		session.destroyed = false
 	}
-	return err
+	return nil
 }
 
 // ParseSessionFromRequest takes a request, determines if there is a valid session cookie,

@@ -67,6 +67,15 @@ func TestUpdateExpiredTime(t *testing.T) {
 	}
 }
 
+func TestUpdateToNonPersisantShouldCreateNewSession(t *testing.T) {
+	session, _ := sh.CreateSession("username", false)
+	selectorID, sessionID := session.getSelectorID(), session.getSessionID()
+	err := sh.UpdateSessionIfValid(session)
+	if err != nil || selectorID == session.getSelectorID() || sessionID == session.getSessionID() || session.isDestroyed() {
+		log.Fatal("Non-persistant session should be destroyed and re-created on update")
+	}
+}
+
 func TestCreateSession(t *testing.T) {
 	s, err := sh.CreateSession("thedadams", true)
 	if err != nil || !s.isValid() || !s.isPersistant() {
@@ -192,30 +201,36 @@ func TestValidateUserInputs(t *testing.T) {
 }
 
 func TestTimeoutOfNonPersistantCookies(t *testing.T) {
-	sh, _ := NewSesHandlerWithDB(db, time.Microsecond, time.Millisecond*100)
-	ses, _ := sh.CreateSession("long", true)
-	for i := 0; i < 10; i++ {
+	sh, _ := NewSesHandlerWithDB(db, time.Millisecond, time.Millisecond*300)
+	for i := 0; i < 5; i++ {
 		ses1, _ := sh.CreateSession("dadams", true)
 		ses2, _ := sh.CreateSession("nadams", false)
 
-		time.Sleep(time.Millisecond * 30) // Wait for the clean up to fire
+		time.Sleep(time.Millisecond) // Wait for a short time
+
+		err := sh.UpdateSessionIfValid(ses1)
+		if err != nil || ses2.isDestroyed() {
+			log.Fatal("Non-persistant session should not be destroyed yet")
+		}
+
+		time.Sleep(time.Millisecond * 100) // Wait for clean-up to fire
+
+		// ses2 should not be destroyed
+		if sh.isValidSession(ses2) {
+			log.Fatal("Non-persistant session should now be destroyed")
+		}
 
 		// Now ses1 should be in the database.
 		if !sh.isValidSession(ses1) {
-			log.Println(i)
 			t.Fatal("A persistant session should be valid")
 		}
 
-		// Now ses2 should NOT be in the database.
-		if sh.isValidSession(ses2) {
-			log.Println(i)
-			t.Fatal("A non-persistant cookie should be removed from the database")
-		}
-	}
+		time.Sleep(time.Millisecond * 500)
 
-	// The first session created should also be timed-out after all this.
-	if sh.isValidSession(ses) {
-		t.Fatal("Timed-out persistant sessions should also be removed")
+		// Now ses1 should be destroyed
+		if sh.isValidSession(ses1) {
+			t.Fatal("A persistant session should now be invalid")
+		}
 	}
 }
 func TestMain(m *testing.M) {
