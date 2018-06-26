@@ -1,7 +1,6 @@
 package seshandler
 
 import (
-	"fmt"
 	"log"
 	"strings"
 	"testing"
@@ -10,10 +9,9 @@ import (
 
 func TestSessionOnlyCookieCreate(t *testing.T) {
 	ses := newSession("", "", "", 0)
-	cookie, err := ses.sessionCookie()
+	cookie := ses.sessionCookie()
 
-	if err != nil || cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
-		fmt.Println(err)
+	if cookie == nil || cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
 		log.Fatal("Cookie will not expire after session terminated")
 	}
 }
@@ -42,23 +40,23 @@ func TestUpdateSessionExpiredTime(t *testing.T) {
 
 func TestSessionCookie(t *testing.T) {
 	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
-	cookie, err := ses.sessionCookie()
+	cookie := ses.sessionCookie()
 	// Should have a valid cookie
-	if err != nil || cookie.Name != sessionCookieName || cookie.Value != ses.cookieValue() || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout.Seconds()) {
+	if cookie == nil || cookie.Name != sessionCookieName || cookie.Value != ses.cookieValue() || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout.Seconds()) {
 		log.Fatal("Session cookie not created properly")
 	}
 
 	ses.destroy()
-	cookie, err = ses.sessionCookie()
-	if err == nil || cookie != nil {
+	cookie = ses.sessionCookie()
+	if cookie != nil {
 		log.Fatal("Cookie created for a destroyed session.")
 	}
 
 	ses.destroyed = false
 	ses.cookie.Expires = time.Now()
 	time.Sleep(time.Microsecond)
-	cookie, err = ses.sessionCookie()
-	if err == nil || cookie != nil {
+	cookie = ses.sessionCookie()
+	if cookie != nil {
 		log.Fatal("Cookie created for an expired session")
 	}
 }

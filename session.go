@@ -32,13 +32,13 @@ func newSession(selectorID, sessionID, username string, maxLifetime time.Duratio
 }
 
 // SessionCookie builds a cookie from the Session struct
-func (s *Session) sessionCookie() (*http.Cookie, error) {
+func (s *Session) sessionCookie() *http.Cookie {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	if !s.isValid() {
-		return nil, invalidSessionCookie()
+		return nil
 	}
-	return s.cookie, nil
+	return s.cookie
 }
 
 func (s *Session) cookieValue() string {

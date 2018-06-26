@@ -162,6 +162,16 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) 
 	return session, nil
 }
 
+// AttachCookie returns a cookie to attach to a ResponseRequest
+func (sh *SesHandler) AttachCookie(w http.ResponseWriter, session *Session) error {
+	if err := sh.UpdateSessionIfValid(session); err != nil {
+		log.Println("Invalid session: no cookie returned")
+		return invalidSessionError(session.getSelectorID())
+	}
+	http.SetCookie(w, session.sessionCookie())
+	return nil
+}
+
 func (sh *SesHandler) validateUserInputs(session *Session) bool {
 	s1 := url.QueryEscape(session.getSelectorID())
 	s2 := url.QueryEscape(session.getUsername())

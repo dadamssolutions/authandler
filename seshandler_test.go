@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -146,7 +147,7 @@ func TestParseSessionFromRequest(t *testing.T) {
 
 func TestSessionParsingFromCookie(t *testing.T) {
 	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
-	cookie, _ := ses.sessionCookie()
+	cookie := ses.sessionCookie()
 	sesTest, err := sh.ParseSessionCookie(sessionInDatabase.cookie)
 
 	// Should be a valid cookie
@@ -169,7 +170,7 @@ func TestSessionParsingFromCookie(t *testing.T) {
 	// The session is not in the database so should be invalid
 	ses.cookie.Expires = time.Now().Add(time.Second)
 	ses.cookie.Value = ses.cookieValue()
-	cookie, _ = ses.sessionCookie()
+	cookie = ses.sessionCookie()
 	sesTest, err = sh.ParseSessionCookie(cookie)
 	if err == nil || sesTest != nil {
 		t.Fatal("Session cookie should be invalid")
@@ -180,6 +181,24 @@ func TestSessionParsingFromCookie(t *testing.T) {
 	sesTest, err = sh.ParseSessionCookie(cookie)
 	if err == nil || sesTest != nil {
 		t.Fatal("Session cookie should be invalid")
+	}
+}
+
+func TestAttachCookieToResponseWriter(t *testing.T) {
+	session, _ := sh.CreateSession("dadams", true)
+	w := httptest.NewRecorder()
+	err := sh.AttachCookie(w, session)
+	resp := w.Result()
+	attachedSession, _ := sh.ParseSessionCookie(resp.Cookies()[0])
+	if err != nil || !session.Equals(attachedSession) {
+		log.Fatal("Cookie not attached to response writer")
+	}
+
+	sh.DestroySession(session)
+	w = httptest.NewRecorder()
+	err = sh.AttachCookie(w, session)
+	if err == nil || session.Equals(attachedSession) {
+		log.Fatal("Invalid cookie attached to response writer")
 	}
 }
 
