@@ -140,7 +140,6 @@ func TestSessionParsingFromCookie(t *testing.T) {
 	anotherSession, _ := sh.CreateSession("dadams", false)
 	sesTest, err = sh.ParseSessionCookie(anotherSession.cookie)
 	userSessionExists, _ := sh.dataAccess.sessionExistsForUser("dadams")
-	log.Println(err)
 	if err == nil || sesTest != nil || userSessionExists {
 		t.Fatal("Session cookie should be invalid because it is expired")
 	}
