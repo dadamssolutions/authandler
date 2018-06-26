@@ -191,7 +191,7 @@ func (s sesDataAccess) validateSession(session *Session) error {
 		s.destroySession(session)
 		return sessionExpiredError(session.getSelectorID())
 	}
-	// TODO: update the expired time since we are accessing this session.
+
 	session.cookie.Expires = dbSession.getExpireTime()
 	return tx.Commit()
 }

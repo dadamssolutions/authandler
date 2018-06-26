@@ -86,8 +86,8 @@ func (sh *SesHandler) DestroySession(session *Session) error {
 	return err
 }
 
-// IsValidSession determines if the given session is valid.
-func (sh *SesHandler) IsValidSession(session *Session) bool {
+// isValidSession determines if the given session is valid.
+func (sh *SesHandler) isValidSession(session *Session) bool {
 	if !sh.validateUserInputs(session) {
 		return false
 	}
@@ -98,9 +98,11 @@ func (sh *SesHandler) IsValidSession(session *Session) bool {
 	return true
 }
 
-// UpdateSession sets the expiration of the session to time.Now.
-func (sh *SesHandler) UpdateSession(session *Session) error {
-	if ok := sh.IsValidSession(session); !ok {
+// UpdateSessionIfValid sets the expiration of the session to time.Now.
+// Should also be used to verify that a session is valid.
+// If the session is invalid, then an error will be returned.
+func (sh *SesHandler) UpdateSessionIfValid(session *Session) error {
+	if ok := sh.isValidSession(session); !ok {
 		log.Println("Session with selector ID " + session.getSelectorID() + " is not a valid session, so we can't update it")
 		return invalidSessionError(session.getSelectorID())
 	}
@@ -139,7 +141,7 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) 
 
 	selectorID, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
 	session := &Session{cookie: cookie, selectorID: selectorID, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
-	if !sh.IsValidSession(session) {
+	if !sh.isValidSession(session) {
 		return nil, invalidSessionCookie()
 	}
 	return session, nil

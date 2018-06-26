@@ -51,7 +51,7 @@ func TestUpdateExpiredTime(t *testing.T) {
 	// We should get an update to expiration time.
 	now := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
-	err := sh.UpdateSession(sessionInDatabase)
+	err := sh.UpdateSessionIfValid(sessionInDatabase)
 	if err != nil || sessionInDatabase.getExpireTime().Before(now) {
 		log.Println(err)
 		t.Fatal("Session expiration not updated.")
@@ -60,7 +60,7 @@ func TestUpdateExpiredTime(t *testing.T) {
 	// Now we should not get an update to expiration time.
 	nowt := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
-	err = sh.UpdateSession(sessionNotInDatabase)
+	err = sh.UpdateSessionIfValid(sessionNotInDatabase)
 	if err == nil || nowt.Before(sessionNotInDatabase.getExpireTime()) {
 		log.Println(err)
 		t.Fatal("Session expiration update unexpected.")
@@ -190,20 +190,20 @@ func TestTimeoutOfSessionOnlyCookies(t *testing.T) {
 		time.Sleep(time.Millisecond * 30) // Wait for the clean up to fire
 
 		// Now ses1 should be in the database.
-		if !sh.IsValidSession(ses1) {
+		if !sh.isValidSession(ses1) {
 			log.Println(i)
 			t.Fatal("A persistant session should be valid")
 		}
 
 		// Now ses2 should NOT be in the database.
-		if sh.IsValidSession(ses2) {
+		if sh.isValidSession(ses2) {
 			log.Println(i)
 			t.Fatal("A session only cookie should be removed from the database")
 		}
 	}
 
 	// The first session created should also be timed-out after all this.
-	if sh.IsValidSession(ses) {
+	if sh.isValidSession(ses) {
 		t.Fatal("Timed-out persistant sessions should also be removed")
 	}
 }
