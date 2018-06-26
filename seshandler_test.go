@@ -122,6 +122,17 @@ func TestParseSessionFromRequest(t *testing.T) {
 		log.Println(err)
 		t.Fatal("Cookie not parsed properly from request")
 	}
+
+	anotherSession, _ := sh.CreateSession("somone", true)
+	r, _ = http.NewRequest("GET", "/", nil)
+	sh.DestroySession(anotherSession)
+	r.AddCookie(anotherSession.cookie)
+	sesTest, err = sh.ParseSessionFromRequest(r)
+	if err == nil || sesTest != nil {
+		log.Println(err)
+		log.Println(sesTest)
+		t.Fatal("Cookie parse when none should be")
+	}
 }
 
 func TestSessionParsingFromCookie(t *testing.T) {

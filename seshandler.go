@@ -88,14 +88,13 @@ func (sh *SesHandler) DestroySession(session *Session) error {
 
 // isValidSession determines if the given session is valid.
 func (sh *SesHandler) isValidSession(session *Session) bool {
-	if !sh.validateUserInputs(session) {
-		return false
+	validInputs := sh.validateUserInputs(session)
+	if validInputs {
+		if err := sh.dataAccess.validateSession(session); err == nil {
+			return true
+		}
 	}
-	if err := sh.dataAccess.validateSession(session); err != nil {
-		log.Println(err)
-		return false
-	}
-	return true
+	return false
 }
 
 // UpdateSessionIfValid sets the expiration of the session to time.Now.
