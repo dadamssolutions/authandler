@@ -101,7 +101,7 @@ func (sh *SesHandler) IsValidSession(session *Session) bool {
 // UpdateSession sets the expiration of the session to time.Now.
 func (sh *SesHandler) UpdateSession(session *Session) error {
 	if ok := sh.IsValidSession(session); !ok {
-		log.Println("Session with ID " + session.getSelectorID() + " is not a valid session, so we can't update it")
+		log.Println("Session with selector ID " + session.getSelectorID() + " is not a valid session, so we can't update it")
 		return invalidSessionError(session.getSelectorID())
 	}
 	err := sh.dataAccess.updateSession(session, sh.maxLifetime)
@@ -141,10 +141,6 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) 
 	session := &Session{cookie: cookie, selectorID: selectorID, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
 	if !sh.IsValidSession(session) {
 		return nil, invalidSessionCookie()
-	}
-	if session.isExpired() {
-		log.Println("Parsed session " + session.getSelectorID() + ", but it is expired at " + session.cookie.Expires.String())
-		return nil, sessionExpiredError(selectorID)
 	}
 	return session, nil
 }
