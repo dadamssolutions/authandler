@@ -37,7 +37,7 @@ func TestBadDatabaseConnection(t *testing.T) {
 }
 
 func TestNegativeTimeoutSesCreation(t *testing.T) {
-	sh1, err := NewSesHandlerWithDB(db, -timeout, timeout)
+	sh1, err := NewSesHandlerWithDB(db, timeout, -timeout)
 	if err != nil {
 		log.Println(err)
 		t.Fatal("We should not have an error with negative timeout")
@@ -68,20 +68,20 @@ func TestUpdateExpiredTime(t *testing.T) {
 }
 
 func TestCreateSession(t *testing.T) {
-	s, err := sh.CreateSession("thedadams", false)
-	if err != nil || !s.isValid() || s.isSessionOnly() {
+	s, err := sh.CreateSession("thedadams", true)
+	if err != nil || !s.isValid() || !s.isPersistant() {
 		t.Fatal("Session not created properly")
 	}
 
-	s, err = sh.CreateSession("thedadams", true)
-	if err != nil || !s.isValid() || !s.isSessionOnly() {
+	s, err = sh.CreateSession("thedadams", false)
+	if err != nil || !s.isValid() || s.isPersistant() {
 		t.Fatal("Session not created properly")
 	}
 }
 
 func TestDestroySession(t *testing.T) {
 	// We put the session in the database so it is destroyed
-	s, err := sh.CreateSession("anyone", false)
+	s, err := sh.CreateSession("anyone", true)
 	err = sh.DestroySession(s)
 	if s.isValid() || err != nil {
 		log.Println(err)
@@ -89,7 +89,7 @@ func TestDestroySession(t *testing.T) {
 	}
 
 	// Session is not in the database and should be destroyed
-	sessionNotInDatabase.destroyed = false
+	sessionNotInDatabase.destroyed = true
 	err = sh.DestroySession(sessionNotInDatabase)
 	if sessionNotInDatabase.isValid() || err != nil {
 		log.Println(err)
@@ -137,7 +137,7 @@ func TestSessionParsingFromCookie(t *testing.T) {
 
 	// The cookie is expired so it should not be valid
 	sh.maxLifetime = -time.Second
-	anotherSession, _ := sh.CreateSession("dadams", false)
+	anotherSession, _ := sh.CreateSession("dadams", true)
 	sesTest, err = sh.ParseSessionCookie(anotherSession.cookie)
 	userSessionExists, _ := sh.dataAccess.sessionExistsForUser("dadams")
 	if err == nil || sesTest != nil || userSessionExists {
@@ -180,12 +180,12 @@ func TestValidateUserInputs(t *testing.T) {
 	}
 }
 
-func TestTimeoutOfSessionOnlyCookies(t *testing.T) {
-	sh, _ := NewSesHandlerWithDB(db, time.Millisecond*100, time.Microsecond)
-	ses, _ := sh.CreateSession("long", false)
+func TestTimeoutOfNonPersistantCookies(t *testing.T) {
+	sh, _ := NewSesHandlerWithDB(db, time.Microsecond, time.Millisecond*100)
+	ses, _ := sh.CreateSession("long", true)
 	for i := 0; i < 10; i++ {
-		ses1, _ := sh.CreateSession("dadams", false)
-		ses2, _ := sh.CreateSession("nadams", true)
+		ses1, _ := sh.CreateSession("dadams", true)
+		ses2, _ := sh.CreateSession("nadams", false)
 
 		time.Sleep(time.Millisecond * 30) // Wait for the clean up to fire
 
@@ -198,7 +198,7 @@ func TestTimeoutOfSessionOnlyCookies(t *testing.T) {
 		// Now ses2 should NOT be in the database.
 		if sh.isValidSession(ses2) {
 			log.Println(i)
-			t.Fatal("A session only cookie should be removed from the database")
+			t.Fatal("A non-persistant cookie should be removed from the database")
 		}
 	}
 
@@ -216,7 +216,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	sessionInDatabase, err = sh.CreateSession("thedadams", false)
+	sessionInDatabase, err = sh.CreateSession("thedadams", true)
 	if err != nil {
 		log.Fatal(err)
 	}

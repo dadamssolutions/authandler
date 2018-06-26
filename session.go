@@ -13,6 +13,7 @@ type Session struct {
 	selectorID string
 	sessionID  string
 	username   string
+	persistant bool
 	destroyed  bool
 
 	lock *sync.RWMutex
@@ -25,6 +26,7 @@ func newSession(selectorID, sessionID, username string, maxLifetime time.Duratio
 	s.cookie = c
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
+		s.persistant = true
 	}
 	return s
 }
@@ -81,13 +83,13 @@ func (s *Session) getExpireTime() time.Time {
 func (s *Session) isExpired() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.cookie.Expires.Before(time.Now()) && !s.isSessionOnly()
+	return s.isPersistant() && s.cookie.Expires.Before(time.Now())
 }
 
-func (s *Session) isSessionOnly() bool {
+func (s *Session) isPersistant() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.cookie.Expires.IsZero()
+	return s.persistant
 }
 
 func (s *Session) markSessionExpired() {

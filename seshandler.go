@@ -54,9 +54,9 @@ type SesHandler struct {
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If timeout < 0, then it is set to 0 (session cookie).
-func NewSesHandlerWithDB(db *sql.DB, timeout time.Duration, sessionOnlyTime time.Duration) (*SesHandler, error) {
-	da, err := newDataAccess(db, timeout, sessionOnlyTime)
-	return newSesHandler(da, timeout), err
+func NewSesHandlerWithDB(db *sql.DB, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*SesHandler, error) {
+	da, err := newDataAccess(db, sessionTimeout, persistantSessionTimeout)
+	return newSesHandler(da, persistantSessionTimeout), err
 }
 
 func newSesHandler(da sesDataAccess, timeout time.Duration) *SesHandler {
@@ -68,8 +68,8 @@ func newSesHandler(da sesDataAccess, timeout time.Duration) *SesHandler {
 }
 
 // CreateSession generates a new session for the given user ID.
-func (sh *SesHandler) CreateSession(username string, sessionOnly bool) (*Session, error) {
-	session, err := sh.dataAccess.createSession(username, sh.maxLifetime, sessionOnly)
+func (sh *SesHandler) CreateSession(username string, persistant bool) (*Session, error) {
+	session, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistant)
 	if err != nil {
 		log.Println(err)
 	}
