@@ -54,24 +54,17 @@ type SesHandler struct {
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If timeout < 0, then it is set to 0 (session cookie).
-func NewSesHandlerWithDB(db *sql.DB, timeout time.Duration) (*SesHandler, error) {
-	return newSesHandler(sesDataAccess{db}, timeout)
+func NewSesHandlerWithDB(db *sql.DB, timeout time.Duration, sessionOnlyTime time.Duration) (*SesHandler, error) {
+	da, err := newDataAccess(db, timeout, sessionOnlyTime)
+	return newSesHandler(da, timeout), err
 }
 
-func newSesHandler(da sesDataAccess, timeout time.Duration) (*SesHandler, error) {
+func newSesHandler(da sesDataAccess, timeout time.Duration) *SesHandler {
 	if timeout < 0 {
 		timeout = 0
 	}
-	if da.DB == nil {
-		log.Println("Cannot connect to the database")
-		return nil, badDatabaseConnectionError()
-	}
 	ses := &SesHandler{dataAccess: da, maxLifetime: timeout}
-	err := ses.dataAccess.createTable()
-	if err != nil {
-		log.Println(err)
-	}
-	return ses, err
+	return ses
 }
 
 // CreateSession generates a new session for the given user ID.

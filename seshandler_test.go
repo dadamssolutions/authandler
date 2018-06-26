@@ -30,14 +30,14 @@ func TestIDGenerators(t *testing.T) {
 }
 
 func TestBadDatabaseConnection(t *testing.T) {
-	_, err := newSesHandler(sesDataAccess{}, timeout)
-	if err == nil {
-		t.Fatal("Expected error for bad database creation")
+	sh := newSesHandler(sesDataAccess{}, timeout)
+	if sh == nil {
+		t.Fatal("Session handler should always be returned by unexported newSesHandler")
 	}
 }
 
 func TestNegativeTimeoutSesCreation(t *testing.T) {
-	sh1, err := NewSesHandlerWithDB(db, -timeout)
+	sh1, err := NewSesHandlerWithDB(db, -timeout, timeout)
 	if err != nil {
 		log.Println(err)
 		t.Fatal("We should not have an error with negative timeout")
@@ -180,12 +180,40 @@ func TestValidateUserInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestTimeoutOfSessionOnlyCookies(t *testing.T) {
+	sh, _ := NewSesHandlerWithDB(db, time.Millisecond*100, time.Microsecond)
+	ses, _ := sh.CreateSession("long", false)
+	for i := 0; i < 10; i++ {
+		ses1, _ := sh.CreateSession("dadams", false)
+		ses2, _ := sh.CreateSession("nadams", true)
+
+		time.Sleep(time.Millisecond * 30) // Wait for the clean up to fire
+
+		// Now ses1 should be in the database.
+		if !sh.IsValidSession(ses1) {
+			log.Println(i)
+			t.Fatal("A persistant session should be valid")
+		}
+
+		// Now ses2 should NOT be in the database.
+		if sh.IsValidSession(ses2) {
+			log.Println(i)
+			t.Fatal("A session only cookie should be removed from the database")
+		}
+	}
+
+	// The first session created should also be timed-out after all this.
+	if sh.IsValidSession(ses) {
+		t.Fatal("Timed-out persistant sessions should also be removed")
+	}
+}
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	sh, err = NewSesHandlerWithDB(db, timeout)
+	sh, err = NewSesHandlerWithDB(db, timeout, timeout)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -203,6 +231,5 @@ func TestMain(m *testing.M) {
 	if err == nil {
 		log.Fatal("We shouldn't be able to drop the table twice.")
 	}
-
 	os.Exit(num)
 }
