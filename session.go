@@ -3,30 +3,28 @@ package seshandler
 import (
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 )
 
 // Session type represents an HTTP session.
 type Session struct {
-	cookie    *http.Cookie
-	id        string
-	sessionID string
-	username  string
-	destroyed bool
+	cookie     *http.Cookie
+	selectorID string
+	sessionID  string
+	username   string
+	destroyed  bool
 
 	lock *sync.RWMutex
 }
 
 // NewSession creates a new session with the given information
-func newSession(id, sessionID, username string, maxLifetime time.Duration) *Session {
-	s := &Session{id: id, sessionID: sessionID, username: username, lock: &sync.RWMutex{}}
+func newSession(selectorID, sessionID, username string, maxLifetime time.Duration) *Session {
+	s := &Session{selectorID: selectorID, sessionID: sessionID, username: username, lock: &sync.RWMutex{}}
 	c := &http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime.Seconds())}
 	s.cookie = c
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
-		c.MaxAge = int(maxLifetime.Seconds())
 	}
 	return s
 }
@@ -44,20 +42,27 @@ func (s *Session) sessionCookie() (*http.Cookie, error) {
 func (s *Session) cookieValue() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return url.QueryEscape(s.id + "|" + s.username + "|" + s.sessionID)
+	return url.QueryEscape(s.selectorID + "|" + s.username + "|" + s.sessionID)
 }
 
 func (s *Session) hashPayload() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.username + s.id
+	return s.username + s.selectorID
 }
 
-// GetID returns the session's ID
-func (s *Session) getID() string {
+// getSelectorID returns the session's selector ID
+func (s *Session) getSelectorID() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.id
+	return s.selectorID
+}
+
+// getSessionID returns the session's session ID
+func (s *Session) getSessionID() string {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.sessionID
 }
 
 // GetUsername returns the username of the account to which the session is associated.
@@ -122,5 +127,5 @@ func (s *Session) Equals(other *Session) bool {
 	other.lock.RLock()
 	defer s.lock.RUnlock()
 	defer other.lock.RUnlock()
-	return strings.Compare(s.getID(), other.getID()) == 0 && strings.Compare(s.getUsername(), other.getUsername()) == 0 && strings.Compare(s.sessionID, other.sessionID) == 0 && s.destroyed == other.destroyed
+	return s.getSelectorID() == other.getSelectorID() && s.getUsername() == other.getUsername() && s.getSessionID() == other.getSessionID() && s.destroyed == other.destroyed
 }

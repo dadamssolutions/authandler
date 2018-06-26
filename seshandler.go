@@ -101,8 +101,8 @@ func (sh *SesHandler) IsValidSession(session *Session) bool {
 // UpdateSession sets the expiration of the session to time.Now.
 func (sh *SesHandler) UpdateSession(session *Session) error {
 	if ok := sh.IsValidSession(session); !ok {
-		log.Println("Session with ID " + session.getID() + " is not a valid session, so we can't update it")
-		return invalidSessionError(session.getID())
+		log.Println("Session with ID " + session.getSelectorID() + " is not a valid session, so we can't update it")
+		return invalidSessionError(session.getSelectorID())
 	}
 	err := sh.dataAccess.updateSession(session, sh.maxLifetime)
 	if err != nil {
@@ -137,27 +137,27 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) 
 		return nil, invalidSessionCookie()
 	}
 
-	id, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
-	session := &Session{cookie: cookie, id: id, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
+	selectorID, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
+	session := &Session{cookie: cookie, selectorID: selectorID, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
 	if !sh.IsValidSession(session) {
 		return nil, invalidSessionCookie()
 	}
 	if session.isExpired() {
-		log.Println("Parsed session " + session.getID() + ", but it is expired at " + session.cookie.Expires.String())
-		return nil, sessionExpiredError(id)
+		log.Println("Parsed session " + session.getSelectorID() + ", but it is expired at " + session.cookie.Expires.String())
+		return nil, sessionExpiredError(selectorID)
 	}
 	return session, nil
 }
 
 func (sh *SesHandler) validateUserInputs(session *Session) bool {
-	s1 := url.QueryEscape(session.getID())
+	s1 := url.QueryEscape(session.getSelectorID())
 	s2 := url.QueryEscape(session.getUsername())
-	s3 := url.QueryEscape(session.sessionID)
-	if s1 != session.getID() || s2 != session.getUsername() || s3 != session.sessionID {
+	s3 := url.QueryEscape(session.getSessionID())
+	if s1 != session.getSelectorID() || s2 != session.getUsername() || s3 != session.getSessionID() {
 		log.Println("The session has invalid pieces. The user must have altered them:")
-		log.Println(session.getID())
+		log.Println(session.getSelectorID())
 		log.Println(session.getUsername())
-		log.Println(session.sessionID)
+		log.Println(session.getSessionID())
 		return false
 	}
 	return true

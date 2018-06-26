@@ -95,18 +95,18 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 	if sessionOnly {
 		maxLifetime = 0
 	}
-	var id, sessionID string
+	var selectorID, sessionID string
 	var err error
 	var tx *sql.Tx
 	var session *Session
 	for true {
-		id, sessionID = generateSelectorID(), generateSessionID()
+		selectorID, sessionID = generateSelectorID(), generateSessionID()
 		tx, err = s.Begin()
 		if err != nil {
 			return nil, err
 		}
-		session = newSession(id, sessionID, username, maxLifetime)
-		_, err = tx.Exec(insertSession, session.getID(), hashString(session.hashPayload()), username, time.Now(), session.getExpireTime(), maxLifetime == 0)
+		session = newSession(selectorID, sessionID, username, maxLifetime)
+		_, err = tx.Exec(insertSession, session.getSelectorID(), hashString(session.hashPayload()), username, time.Now(), session.getExpireTime(), maxLifetime == 0)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
 				// This error code means that the uniqueness of id has been violated
@@ -147,7 +147,7 @@ func (s sesDataAccess) destroySession(session *Session) error {
 		return err
 	}
 
-	tx.Exec(deleteSession, session.getID())
+	tx.Exec(deleteSession, session.getSelectorID())
 	session.destroy()
 	return tx.Commit()
 }
@@ -157,7 +157,7 @@ func (s sesDataAccess) updateSession(session *Session, maxLifetime time.Duration
 	if err != nil {
 		return err
 	}
-	tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), session.getID())
+	tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), session.getSelectorID())
 
 	session.updateExpireTime(maxLifetime)
 	return tx.Commit()
@@ -168,19 +168,19 @@ func (s sesDataAccess) validateSession(session *Session) error {
 	if err != nil {
 		return err
 	}
-	dbSession := newSession("", session.sessionID, "", 0)
+	dbSession := newSession("", session.getSessionID(), "", 0)
 	var dbHash string
 	var sessionOnly bool
-	err = tx.QueryRow(getSessionInfo, session.getID()).Scan(&dbSession.id, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &sessionOnly)
+	err = tx.QueryRow(getSessionInfo, session.getSelectorID()).Scan(&dbSession.selectorID, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &sessionOnly)
 	if err != nil || !session.Equals(dbSession) {
 		tx.Rollback()
 		s.destroySession(session)
-		return sessionNotInDatabaseError(session.getID())
+		return sessionNotInDatabaseError(session.getSelectorID())
 	}
 	if dbSession.isExpired() {
 		tx.Rollback()
 		s.destroySession(session)
-		return sessionExpiredError(session.getID())
+		return sessionExpiredError(session.getSelectorID())
 	}
 	session.cookie.Expires = dbSession.getExpireTime()
 	return tx.Commit()
