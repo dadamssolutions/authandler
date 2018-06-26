@@ -11,13 +11,14 @@ import (
 )
 
 const (
-	tableCreation      = "CREATE TABLE IF NOT EXISTS sessions (id char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, session_only boolean NOT NULL, PRIMARY KEY (id));"
+	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
+	tableCreation      = "CREATE TABLE IF NOT EXISTS sessions (selector char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, session_only boolean NOT NULL, PRIMARY KEY (selector));"
 	dropTable          = "DROP TABLE sessions;"
-	insertSession      = "INSERT INTO sessions(id, session_hash, user_id, created, expiration, session_only) VALUES($1, $2, $3, $4, $5, $6);"
-	userSessionExists  = "SELECT count(*) FROM sessions WHERE user_id = $1;"
-	deleteSession      = "DELETE FROM sessions WHERE id = $1;"
-	getSessionInfo     = "SELECT id, session_hash, user_id, expiration, session_only FROM sessions WHERE id = $1;"
-	updateSession      = "UPDATE sessions SET expiration = $1 WHERE id = $2;"
+	insertSession      = "INSERT INTO sessions(selector, session_hash, user_id, created, expiration, session_only) VALUES('%v', '%v', '%v', '%v', '%v', '%v');"
+	userSessionExists  = "SELECT count(*) FROM sessions WHERE user_id = '%v';"
+	deleteSession      = "DELETE FROM sessions WHERE selector = '%v';"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, expiration, session_only FROM sessions WHERE selector = '%v';"
+	updateSession      = "UPDATE sessions SET expiration = '%v' WHERE selector = '%v';"
 	cleanUpOldSessions = "DELETE FROM sessions WHERE (session_only = true AND created < NOW() - INTERVAL '%v MICROSECOND') OR (expiration < NOW() - INTERVAL '%v MICROSECOND');"
 )
 
@@ -106,7 +107,8 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			return nil, err
 		}
 		session = newSession(selectorID, sessionID, username, maxLifetime)
-		_, err = tx.Exec(insertSession, session.getSelectorID(), hashString(session.hashPayload()), username, time.Now(), session.getExpireTime(), maxLifetime == 0)
+		queryString := fmt.Sprintf(insertSession, session.getSelectorID(), hashString(session.hashPayload()), username, time.Now().Format(timestampFormat), session.getExpireTime().Format(timestampFormat), maxLifetime == 0)
+		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
 				// This error code means that the uniqueness of id has been violated
@@ -130,7 +132,8 @@ func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
 		return true, err
 	}
 	var count int
-	err = tx.QueryRow(userSessionExists, username).Scan(&count)
+	queryString := fmt.Sprintf(userSessionExists, username)
+	err = tx.QueryRow(queryString).Scan(&count)
 	if err != nil {
 		return true, err
 	}
@@ -146,8 +149,8 @@ func (s sesDataAccess) destroySession(session *Session) error {
 	if err != nil {
 		return err
 	}
-
-	tx.Exec(deleteSession, session.getSelectorID())
+	queryString := fmt.Sprintf(deleteSession, session.getSelectorID())
+	tx.Exec(queryString)
 	session.destroy()
 	return tx.Commit()
 }
@@ -157,8 +160,12 @@ func (s sesDataAccess) updateSession(session *Session, maxLifetime time.Duration
 	if err != nil {
 		return err
 	}
-	tx.Exec(updateSession, session.getExpireTime().Add(maxLifetime), session.getSelectorID())
-
+	queryString := fmt.Sprintf(updateSession, session.getExpireTime().Add(maxLifetime).Format(timestampFormat), session.getSelectorID())
+	_, err = tx.Exec(queryString)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
 	session.updateExpireTime(maxLifetime)
 	return tx.Commit()
 }
@@ -171,17 +178,20 @@ func (s sesDataAccess) validateSession(session *Session) error {
 	dbSession := newSession("", session.getSessionID(), "", 0)
 	var dbHash string
 	var sessionOnly bool
-	err = tx.QueryRow(getSessionInfo, session.getSelectorID()).Scan(&dbSession.selectorID, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &sessionOnly)
+	queryString := fmt.Sprintf(getSessionInfo, session.getSelectorID())
+	err = tx.QueryRow(queryString).Scan(&dbSession.selectorID, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &sessionOnly)
 	if err != nil || !session.Equals(dbSession) {
 		tx.Rollback()
 		s.destroySession(session)
 		return sessionNotInDatabaseError(session.getSelectorID())
 	}
+
 	if dbSession.isExpired() {
 		tx.Rollback()
 		s.destroySession(session)
 		return sessionExpiredError(session.getSelectorID())
 	}
+	// TODO: update the expired time since we are accessing this session.
 	session.cookie.Expires = dbSession.getExpireTime()
 	return tx.Commit()
 }
