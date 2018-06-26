@@ -132,7 +132,7 @@ func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*Session, error)
 func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) {
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
-	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || len(cookieStrings) != 3 {
+	if err != nil || cookie.Name != sessionCookieName || len(cookieStrings) != 3 {
 		log.Println("Cookie string does not have the required parts")
 		return nil, invalidSessionCookie()
 	}
@@ -153,7 +153,7 @@ func (sh *SesHandler) validateUserInputs(session *Session) bool {
 	s1 := url.QueryEscape(session.getID())
 	s2 := url.QueryEscape(session.getUsername())
 	s3 := url.QueryEscape(session.sessionID)
-	if strings.Compare(s1, session.getID()) != 0 || strings.Compare(s2, session.getUsername()) != 0 || strings.Compare(s3, session.sessionID) != 0 {
+	if s1 != session.getID() || s2 != session.getUsername() || s3 != session.sessionID {
 		log.Println("The session has invalid pieces. The user must have altered them:")
 		log.Println(session.getID())
 		log.Println(session.getUsername())

@@ -44,7 +44,7 @@ func TestSessionCookie(t *testing.T) {
 	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
 	cookie, err := ses.sessionCookie()
 	// Should have a valid cookie
-	if err != nil || strings.Compare(cookie.Name, sessionCookieName) != 0 || strings.Compare(cookie.Value, ses.cookieValue()) != 0 || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout/time.Second) {
+	if err != nil || cookie.Name != sessionCookieName || cookie.Value != ses.cookieValue() || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout.Seconds()) {
 		log.Fatal("Session cookie not created properly")
 	}
 

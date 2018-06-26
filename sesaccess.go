@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -112,7 +111,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			if e, ok := err.(pq.Error); ok {
 				// This error code means that the uniqueness of id has been violated
 				// We try again in this case.
-				if strings.Compare(string(e.Code), "23505") == 0 {
+				if string(e.Code) == "23505" {
 					tx.Rollback()
 					continue
 				}

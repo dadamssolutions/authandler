@@ -22,11 +22,11 @@ type Session struct {
 // NewSession creates a new session with the given information
 func newSession(id, sessionID, username string, maxLifetime time.Duration) *Session {
 	s := &Session{id: id, sessionID: sessionID, username: username, lock: &sync.RWMutex{}}
-	c := &http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime / time.Second)}
+	c := &http.Cookie{Name: sessionCookieName, Value: s.cookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime.Seconds())}
 	s.cookie = c
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
-		c.MaxAge = int(maxLifetime / time.Second)
+		c.MaxAge = int(maxLifetime.Seconds())
 	}
 	return s
 }
