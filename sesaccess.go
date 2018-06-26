@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dadamssolutions/seshandler/session"
 	"github.com/lib/pq"
 )
 
@@ -91,22 +92,22 @@ func (s sesDataAccess) dropTable() error {
 	return tx.Commit()
 }
 
-func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, persistant bool) (*Session, error) {
+func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, persistant bool) (*session.Session, error) {
 	if !persistant {
 		maxLifetime = 0
 	}
 	var selectorID, sessionID string
 	var err error
 	var tx *sql.Tx
-	var session *Session
+	var ses *session.Session
 	for true {
 		selectorID, sessionID = generateSelectorID(), generateSessionID()
 		tx, err = s.Begin()
 		if err != nil {
 			return nil, err
 		}
-		session = newSession(selectorID, sessionID, username, maxLifetime)
-		queryString := fmt.Sprintf(insertSession, session.getSelectorID(), hashString(session.hashPayload()), username, time.Now().Format(timestampFormat), session.getExpireTime().Format(timestampFormat), persistant)
+		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, maxLifetime)
+		queryString := fmt.Sprintf(insertSession, ses.SelectorID(), hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
@@ -122,7 +123,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 		}
 		break
 	}
-	return session, tx.Commit()
+	return ses, tx.Commit()
 }
 
 func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
@@ -143,53 +144,52 @@ func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
 	return count > 0, nil
 }
 
-func (s sesDataAccess) destroySession(session *Session) error {
+func (s sesDataAccess) destroySession(ses *session.Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
 	}
-	queryString := fmt.Sprintf(deleteSession, session.getSelectorID())
+	queryString := fmt.Sprintf(deleteSession, ses.SelectorID())
 	tx.Exec(queryString)
-	session.destroy()
+	ses.Destroy()
 	return tx.Commit()
 }
 
-func (s sesDataAccess) updateSession(session *Session, maxLifetime time.Duration) error {
+func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Duration) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
 	}
-	queryString := fmt.Sprintf(updateSession, session.getExpireTime().Add(maxLifetime).Format(timestampFormat), session.getSelectorID())
+	queryString := fmt.Sprintf(updateSession, ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.SelectorID())
 	_, err = tx.Exec(queryString)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
-	session.updateExpireTime(maxLifetime)
+	ses.UpdateExpireTime(maxLifetime)
 	return tx.Commit()
 }
 
-func (s sesDataAccess) validateSession(session *Session) error {
+func (s sesDataAccess) validateSession(ses *session.Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
 	}
-	dbSession := newSession("", session.getSessionID(), "", 0)
-	var dbHash string
-	queryString := fmt.Sprintf(getSessionInfo, session.getSelectorID())
-	err = tx.QueryRow(queryString).Scan(&dbSession.selectorID, &dbHash, &dbSession.username, &dbSession.cookie.Expires, &dbSession.persistant)
-	if err != nil || !session.Equals(dbSession) {
+	var dbHash, selectorID, username string
+	var expires time.Time
+	var persistant bool
+	queryString := fmt.Sprintf(getSessionInfo, ses.SelectorID())
+	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &expires, &persistant)
+	if err != nil || ses.SelectorID() != selectorID || ses.Username() != username || ses.IsPersistant() != persistant {
 		tx.Rollback()
-		s.destroySession(session)
-		return sessionNotInDatabaseError(session.getSelectorID())
+		s.destroySession(ses)
+		return sessionNotInDatabaseError(ses.SelectorID())
 	}
 
-	if !dbSession.isValid() {
+	if !ses.IsValid() {
 		tx.Rollback()
-		s.destroySession(session)
-		return sessionExpiredError(session.getSelectorID())
+		s.destroySession(ses)
+		return sessionExpiredError(ses.SelectorID())
 	}
-
-	session.cookie.Expires = dbSession.getExpireTime()
 	return tx.Commit()
 }

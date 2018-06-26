@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/dadamssolutions/seshandler/session"
 )
 
 const (
@@ -68,18 +69,18 @@ func newSesHandler(da sesDataAccess, timeout time.Duration) *SesHandler {
 }
 
 // CreateSession generates a new session for the given user ID.
-func (sh *SesHandler) CreateSession(username string, persistant bool) (*Session, error) {
-	session, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistant)
+func (sh *SesHandler) CreateSession(username string, persistant bool) (*session.Session, error) {
+	ses, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistant)
 	if err != nil {
 		log.Println(err)
 	}
-	return session, err
+	return ses, err
 }
 
 // DestroySession gets rid of a session, if it exists in the database.
 // If destroy is successful, the session pointer is set to nil.
-func (sh *SesHandler) DestroySession(session *Session) error {
-	err := sh.dataAccess.destroySession(session)
+func (sh *SesHandler) DestroySession(ses *session.Session) error {
+	err := sh.dataAccess.destroySession(ses)
 	if err != nil {
 		log.Println(err)
 	}
@@ -87,10 +88,10 @@ func (sh *SesHandler) DestroySession(session *Session) error {
 }
 
 // isValidSession determines if the given session is valid.
-func (sh *SesHandler) isValidSession(session *Session) bool {
-	validInputs := sh.validateUserInputs(session)
+func (sh *SesHandler) isValidSession(ses *session.Session) bool {
+	validInputs := sh.validateUserInputs(ses)
 	if validInputs {
-		if err := sh.dataAccess.validateSession(session); err == nil {
+		if err := sh.dataAccess.validateSession(ses); err == nil {
 			return true
 		}
 	}
@@ -100,37 +101,36 @@ func (sh *SesHandler) isValidSession(session *Session) bool {
 // UpdateSessionIfValid sets the expiration of the session to time.Now.
 // Should also be used to verify that a session is valid.
 // If the session is invalid, then an error will be returned.
-func (sh *SesHandler) UpdateSessionIfValid(session *Session) error {
-	if ok := sh.isValidSession(session); !ok {
-		log.Println("Session with selector ID " + session.getSelectorID() + " is not a valid session, so we can't update it")
-		return invalidSessionError(session.getSelectorID())
+func (sh *SesHandler) UpdateSessionIfValid(ses *session.Session) (*session.Session, error) {
+	if ok := sh.isValidSession(ses); !ok {
+		log.Println("Session with selector ID " + ses.SelectorID() + " is not a valid session, so we can't update it")
+		return nil, invalidSessionError(ses.SelectorID())
 	}
-	if session.isPersistant() {
-		err := sh.dataAccess.updateSession(session, sh.maxLifetime)
+	if ses.IsPersistant() {
+		err := sh.dataAccess.updateSession(ses, sh.maxLifetime)
 		if err != nil {
 			log.Println(err)
-			return err
+			return nil, err
 		}
 	} else {
-		err := sh.DestroySession(session)
+		err := sh.DestroySession(ses)
 		if err != nil {
 			log.Println(err)
-			return err
+			return nil, err
 		}
-		newerSession, err := sh.CreateSession(session.username, false)
+		newerSession, err := sh.CreateSession(ses.Username(), false)
 		if err != nil {
 			log.Println(err)
-			return err
+			return nil, err
 		}
-		session.selectorID, session.sessionID = newerSession.selectorID, newerSession.sessionID
-		session.destroyed = false
+		ses = newerSession
 	}
-	return nil
+	return ses, nil
 }
 
 // ParseSessionFromRequest takes a request, determines if there is a valid session cookie,
 // and returns the session, if it exists.
-func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*Session, error) {
+func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	// No session cookie available
 	if err != nil {
@@ -146,7 +146,7 @@ func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*Session, error)
 
 // ParseSessionCookie takes a cookie, determines if there is a valid session cookie,
 // and returns the session, if it exists.
-func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) {
+func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session, error) {
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
 	if err != nil || cookie.Name != sessionCookieName || len(cookieStrings) != 3 {
@@ -155,32 +155,33 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*Session, error) 
 	}
 
 	selectorID, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
-	session := &Session{cookie: cookie, selectorID: selectorID, username: username, sessionID: sessionID, lock: &sync.RWMutex{}}
-	if !sh.isValidSession(session) {
+	ses := session.NewSession(selectorID, sessionID, username, sessionCookieName, sh.maxLifetime)
+	if !sh.isValidSession(ses) {
 		return nil, invalidSessionCookie()
 	}
-	return session, nil
+	return ses, nil
 }
 
 // AttachCookie returns a cookie to attach to a ResponseRequest
-func (sh *SesHandler) AttachCookie(w http.ResponseWriter, session *Session) error {
-	if err := sh.UpdateSessionIfValid(session); err != nil {
+func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) error {
+	// Need this incase the call to UpdateSessionIfValid returns an error
+	selectorID := ses.SelectorID()
+	ses, err := sh.UpdateSessionIfValid(ses)
+	if err != nil {
 		log.Println("Invalid session: no cookie returned")
-		return invalidSessionError(session.getSelectorID())
+		return invalidSessionError(selectorID)
 	}
-	http.SetCookie(w, session.sessionCookie())
+	http.SetCookie(w, ses.SessionCookie())
 	return nil
 }
 
-func (sh *SesHandler) validateUserInputs(session *Session) bool {
-	s1 := url.QueryEscape(session.getSelectorID())
-	s2 := url.QueryEscape(session.getUsername())
-	s3 := url.QueryEscape(session.getSessionID())
-	if s1 != session.getSelectorID() || s2 != session.getUsername() || s3 != session.getSessionID() {
+func (sh *SesHandler) validateUserInputs(ses *session.Session) bool {
+	s1 := url.QueryEscape(ses.SelectorID())
+	s2 := url.QueryEscape(ses.Username())
+	s3 := url.QueryEscape(ses.SessionID())
+	if s1 != ses.SelectorID() || s2 != ses.Username() || s3 != ses.SessionID() {
 		log.Println("The session has invalid pieces. The user must have altered them:")
-		log.Println(session.getSelectorID())
-		log.Println(session.getUsername())
-		log.Println(session.getSessionID())
+		log.Println(ses.SelectorID())
 		return false
 	}
 	return true

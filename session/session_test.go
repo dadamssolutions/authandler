@@ -1,4 +1,4 @@
-package seshandler
+package session
 
 import (
 	"log"
@@ -7,9 +7,14 @@ import (
 	"time"
 )
 
+var timeout = time.Minute
+var sessionCookieName = "sessionID"
+var selectorIDLength = 16
+var sessionIDLength = 64
+
 func TestSessionOnlyCookieCreate(t *testing.T) {
-	ses := newSession("", "", "", 0)
-	cookie := ses.sessionCookie()
+	ses := NewSession("", "", "", sessionCookieName, 0)
+	cookie := ses.SessionCookie()
 
 	if cookie == nil || cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
 		log.Fatal("Cookie will not expire after session terminated")
@@ -17,37 +22,37 @@ func TestSessionOnlyCookieCreate(t *testing.T) {
 }
 
 func TestExpiredSession(t *testing.T) {
-	ses := newSession("", "", "", timeout)
-	if ses.isExpired() {
+	ses := NewSession("", "", "", sessionCookieName, timeout)
+	if ses.IsExpired() {
 		t.Fatal("Session should not be expired")
 	}
-	ses.markSessionExpired()
-	if !ses.isExpired() {
+	ses.MarkSessionExpired()
+	if !ses.IsExpired() {
 		t.Fatal("Session should be expired")
 	}
 }
 
 func TestUpdateSessionExpiredTime(t *testing.T) {
-	ses := newSession("", "", "", timeout)
+	ses := NewSession("", "", "", sessionCookieName, timeout)
 	firstTime := time.Now().Add(timeout)
 	time.Sleep(time.Microsecond)
-	ses.updateExpireTime(timeout)
+	ses.UpdateExpireTime(timeout)
 
-	if ses.getExpireTime().Before(firstTime) {
+	if ses.ExpireTime().Before(firstTime) {
 		t.Fatal("Expired time not updated properly")
 	}
 }
 
 func TestSessionCookie(t *testing.T) {
-	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
-	cookie := ses.sessionCookie()
+	ses := NewSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", sessionCookieName, timeout)
+	cookie := ses.SessionCookie()
 	// Should have a valid cookie
-	if cookie == nil || cookie.Name != sessionCookieName || cookie.Value != ses.cookieValue() || !ses.getExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout.Seconds()) {
+	if cookie == nil || cookie.Name != sessionCookieName || cookie.Value != ses.CookieValue() || !ses.ExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout.Seconds()) {
 		log.Fatal("Session cookie not created properly")
 	}
 
-	ses.destroy()
-	cookie = ses.sessionCookie()
+	ses.Destroy()
+	cookie = ses.SessionCookie()
 	if cookie != nil {
 		log.Fatal("Cookie created for a destroyed session.")
 	}
@@ -55,7 +60,7 @@ func TestSessionCookie(t *testing.T) {
 	ses.destroyed = false
 	ses.cookie.Expires = time.Now()
 	time.Sleep(time.Microsecond)
-	cookie = ses.sessionCookie()
+	cookie = ses.SessionCookie()
 	if cookie != nil {
 		log.Fatal("Cookie created for an expired session")
 	}

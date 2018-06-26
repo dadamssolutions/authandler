@@ -9,14 +9,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dadamssolutions/seshandler/session"
 )
 
 var timeout = time.Minute
 var db, err = sql.Open("postgres", "user=test dbname=postgres sslmode=disable")
 var da sesDataAccess
 var sh *SesHandler
-var sessionNotInDatabase = newSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nonone", timeout)
-var sessionInDatabase *Session
+var sessionNotInDatabase = session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nonone", sessionCookieName, timeout)
+var sessionInDatabase *session.Session
 
 func TestIDGenerators(t *testing.T) {
 	id := generateSelectorID()
@@ -52,68 +54,68 @@ func TestUpdateExpiredTime(t *testing.T) {
 	// We should get an update to expiration time.
 	now := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
-	err := sh.UpdateSessionIfValid(sessionInDatabase)
-	if err != nil || sessionInDatabase.getExpireTime().Before(now) {
+	sessionInDatabase, err := sh.UpdateSessionIfValid(sessionInDatabase)
+	if err != nil || sessionInDatabase.ExpireTime().Before(now) {
 		log.Println(err)
 		t.Fatal("Session expiration not updated.")
 	}
 
 	// Now we should not get an update to expiration time.
+	sesNotInDatabase := session.NewSession("", "", "", "", time.Microsecond)
 	nowt := time.Now().Add(sh.maxLifetime)
-	time.Sleep(time.Microsecond * 2)
-	err = sh.UpdateSessionIfValid(sessionNotInDatabase)
-	if err == nil || nowt.Before(sessionNotInDatabase.getExpireTime()) {
+	time.Sleep(time.Millisecond)
+	updatedSes, err := sh.UpdateSessionIfValid(sesNotInDatabase)
+	if err == nil || updatedSes != nil || nowt.Before(sesNotInDatabase.ExpireTime()) {
 		log.Println(err)
 		t.Fatal("Session expiration update unexpected.")
 	}
 }
 
 func TestUpdateToNonPersisantShouldCreateNewSession(t *testing.T) {
-	session, _ := sh.CreateSession("username", false)
-	selectorID, sessionID := session.getSelectorID(), session.getSessionID()
-	err := sh.UpdateSessionIfValid(session)
-	if err != nil || selectorID == session.getSelectorID() || sessionID == session.getSessionID() || session.isDestroyed() {
+	ses, _ := sh.CreateSession("username", false)
+	newerSession, err := sh.UpdateSessionIfValid(ses)
+	if err != nil || newerSession.SelectorID() == ses.SelectorID() || newerSession.SessionID() == ses.SessionID() || !ses.IsDestroyed() || newerSession.IsDestroyed() {
 		log.Fatal("Non-persistant session should be destroyed and re-created on update")
 	}
 }
 
 func TestCreateSession(t *testing.T) {
-	s, err := sh.CreateSession("thedadams", true)
-	if err != nil || !s.isValid() || !s.isPersistant() {
+	ses, err := sh.CreateSession("thedadams", true)
+	if err != nil || !ses.IsValid() || !ses.IsPersistant() {
 		t.Fatal("Session not created properly")
 	}
 
-	s, err = sh.CreateSession("thedadams", false)
-	if err != nil || !s.isValid() || s.isPersistant() {
+	ses, err = sh.CreateSession("thedadams", false)
+	if err != nil || !ses.IsValid() || ses.IsPersistant() {
 		t.Fatal("Session not created properly")
 	}
 }
 
 func TestDestroySession(t *testing.T) {
 	// We put the session in the database so it is destroyed
-	s, err := sh.CreateSession("anyone", true)
-	err = sh.DestroySession(s)
-	if s.isValid() || err != nil {
+	ses, err := sh.CreateSession("anyone", true)
+	err = sh.DestroySession(ses)
+	if ses.IsValid() || err != nil {
 		log.Println(err)
 		t.Fatal("Session not destroyed.")
 	}
 
 	// Session is not in the database and should be destroyed
-	sessionNotInDatabase.destroyed = true
+	sessionNotInDatabase.Destroy()
 	err = sh.DestroySession(sessionNotInDatabase)
-	if sessionNotInDatabase.isValid() || err != nil {
+	if sessionNotInDatabase.IsValid() || err != nil {
 		log.Println(err)
 		t.Fatal("Session not destroyed.")
 	}
 }
 
 func TestSessionExistsForUser(t *testing.T) {
-	exists, _ := sh.dataAccess.sessionExistsForUser(sessionInDatabase.username)
+	exists, _ := sh.dataAccess.sessionExistsForUser(sessionInDatabase.Username())
 	if !exists {
 		t.Fatal("The user should have a session in the database")
 	}
 
-	exists, _ = sh.dataAccess.sessionExistsForUser(sessionNotInDatabase.username)
+	exists, _ = sh.dataAccess.sessionExistsForUser(sessionNotInDatabase.Username())
 	if exists {
 		t.Fatal("The user should NOT have a session in the database")
 	}
@@ -126,29 +128,18 @@ func TestParseSessionFromRequest(t *testing.T) {
 		t.Fatal("Cookie was parsed where none exists")
 	}
 
-	r.AddCookie(sessionInDatabase.cookie)
+	r.AddCookie(sessionInDatabase.SessionCookie())
 	sesTest, err := sh.ParseSessionFromRequest(r)
 	if err != nil || !sesTest.Equals(sessionInDatabase) {
 		log.Println(err)
 		t.Fatal("Cookie not parsed properly from request")
 	}
-
-	anotherSession, _ := sh.CreateSession("somone", true)
-	r, _ = http.NewRequest("GET", "/", nil)
-	sh.DestroySession(anotherSession)
-	r.AddCookie(anotherSession.cookie)
-	sesTest, err = sh.ParseSessionFromRequest(r)
-	if err == nil || sesTest != nil {
-		log.Println(err)
-		log.Println(sesTest)
-		t.Fatal("Cookie parse when none should be")
-	}
 }
 
 func TestSessionParsingFromCookie(t *testing.T) {
-	ses := newSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", timeout)
-	cookie := ses.sessionCookie()
-	sesTest, err := sh.ParseSessionCookie(sessionInDatabase.cookie)
+	ses := session.NewSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", sessionCookieName, timeout)
+	cookie := ses.SessionCookie()
+	sesTest, err := sh.ParseSessionCookie(sessionInDatabase.SessionCookie())
 
 	// Should be a valid cookie
 	if err != nil || !sessionInDatabase.Equals(sesTest) {
@@ -156,28 +147,17 @@ func TestSessionParsingFromCookie(t *testing.T) {
 		t.Fatal("Session cookie not parsed properly")
 	}
 
-	// The cookie is expired so it should not be valid
-	sh.maxLifetime = -time.Second
-	anotherSession, _ := sh.CreateSession("dadams", true)
-	sesTest, err = sh.ParseSessionCookie(anotherSession.cookie)
-	userSessionExists, _ := sh.dataAccess.sessionExistsForUser("dadams")
-	if err == nil || sesTest != nil || userSessionExists {
-		t.Fatal("Session cookie should be invalid because it is expired")
-	}
-	// Reset session handler maxlife for the rest of the tests
-	sh.maxLifetime = timeout
-
 	// The session is not in the database so should be invalid
-	ses.cookie.Expires = time.Now().Add(time.Second)
-	ses.cookie.Value = ses.cookieValue()
-	cookie = ses.sessionCookie()
+	ses.UpdateExpireTime(time.Second)
+	//ses.cookie.Value = ses.CookieValue()
+	cookie = ses.SessionCookie()
 	sesTest, err = sh.ParseSessionCookie(cookie)
 	if err == nil || sesTest != nil {
 		t.Fatal("Session cookie should be invalid")
 	}
 
 	// The cookie name is not correct
-	ses.cookie.Name = "Something else"
+	ses = session.NewSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), "thedadams", "something else", timeout)
 	sesTest, err = sh.ParseSessionCookie(cookie)
 	if err == nil || sesTest != nil {
 		t.Fatal("Session cookie should be invalid")
@@ -204,14 +184,14 @@ func TestAttachCookieToResponseWriter(t *testing.T) {
 
 func TestValidateUserInputs(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		ses := newSession(generateSelectorID(), generateSessionID(), generateRandomString(12), 0)
+		ses := session.NewSession(generateSelectorID(), generateSessionID(), generateRandomString(12), sessionCookieName, 0)
 		if !sh.validateUserInputs(ses) {
 			t.Fatal("Session should have IDs and username")
 		}
 	}
 
 	for i := 0; i < 100; i++ {
-		ses := newSession(generateSelectorID(), generateSessionID(), generateRandomString(12)+" "+generateRandomString(9), 0)
+		ses := session.NewSession(generateSelectorID(), generateSessionID(), generateRandomString(12)+" "+generateRandomString(9), sessionCookieName, 0)
 		if sh.validateUserInputs(ses) {
 			log.Println(ses)
 			t.Fatal("Session should NOT have IDs and username")
@@ -220,19 +200,19 @@ func TestValidateUserInputs(t *testing.T) {
 }
 
 func TestTimeoutOfNonPersistantCookies(t *testing.T) {
-	sh, _ := NewSesHandlerWithDB(db, time.Millisecond, time.Millisecond*300)
+	sh, _ := NewSesHandlerWithDB(db, time.Millisecond, time.Millisecond*100)
 	for i := 0; i < 5; i++ {
 		ses1, _ := sh.CreateSession("dadams", true)
 		ses2, _ := sh.CreateSession("nadams", false)
 
 		time.Sleep(time.Millisecond) // Wait for a short time
 
-		err := sh.UpdateSessionIfValid(ses1)
-		if err != nil || ses2.isDestroyed() {
+		ses2, err := sh.UpdateSessionIfValid(ses2)
+		if err != nil || ses2.IsDestroyed() {
 			log.Fatal("Non-persistant session should not be destroyed yet")
 		}
 
-		time.Sleep(time.Millisecond * 100) // Wait for clean-up to fire
+		time.Sleep(time.Millisecond * 60) // Wait for clean-up to fire
 
 		// ses2 should not be destroyed
 		if sh.isValidSession(ses2) {
@@ -244,7 +224,7 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 			t.Fatal("A persistant session should be valid")
 		}
 
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 60)
 
 		// Now ses1 should be destroyed
 		if sh.isValidSession(ses1) {
