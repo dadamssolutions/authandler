@@ -1,7 +1,6 @@
 package session
 
 import (
-	"log"
 	"strings"
 	"testing"
 	"time"
@@ -12,23 +11,78 @@ var sessionCookieName = "sessionID"
 var selectorIDLength = 16
 var sessionIDLength = 64
 
+func TestHashPayload(t *testing.T) {
+	ses := NewSession(strings.Repeat("A", 16), strings.Repeat("B", 64), strings.Repeat("C", 12), "sessionID", time.Second)
+	if len(ses.HashPayload()) != 76 {
+		t.Error("Hash payload is not the correct length")
+	}
+
+	if ses.HashPayload()[:12] != strings.Repeat("C", 12) {
+		t.Error("Hash payload does not start with the username")
+	}
+
+	if ses.HashPayload()[12:] != strings.Repeat("B", 64) {
+		t.Error("Hash payload does not end with the sessionID")
+	}
+}
+
+func TestGetters(t *testing.T) {
+	ses := NewSession(strings.Repeat("A", 16), strings.Repeat("B", 64), strings.Repeat("C", 12), "sessionID", time.Second)
+
+	if ses.SelectorID() != strings.Repeat("A", 16) {
+		t.Error("Selector ID not returned correctly")
+	}
+
+	if ses.SessionID() != strings.Repeat("B", 64) {
+		t.Error("Session ID not returned correctly")
+	}
+
+	if ses.Username() != strings.Repeat("C", 12) {
+		t.Error("Username not returned correctly")
+	}
+}
+
+func TestSessionEquality(t *testing.T) {
+	ses1 := NewSession(strings.Repeat("A", 16), strings.Repeat("B", 64), strings.Repeat("C", 12), "sessionID", time.Second)
+
+	ses2 := NewSession(strings.Repeat("A", 16), strings.Repeat("B", 64), strings.Repeat("C", 12), "sessionID", time.Second)
+
+	if !ses1.Equals(ses2) {
+		t.Error("Equal sessions not identified as so")
+	}
+
+	ses1.persistant = false
+	if ses1.Equals(ses2) {
+		t.Error("Non-persisant and persistant sessions identified as equal")
+	}
+	ses1.persistant = true
+
+	ses1.Destroy()
+	if ses1.Equals(ses2) {
+		t.Error("Destroyed and active sessions identified as equal")
+	}
+	ses2.Destroy()
+
+	// All other attributes are obvious as well.
+}
+
 func TestSessionOnlyCookieCreate(t *testing.T) {
 	ses := NewSession("", "", "", sessionCookieName, 0)
 	cookie := ses.SessionCookie()
 
 	if cookie == nil || cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
-		log.Fatal("Cookie will not expire after session terminated")
+		t.Error("Cookie will not expire after session terminated")
 	}
 }
 
 func TestExpiredSession(t *testing.T) {
 	ses := NewSession("", "", "", sessionCookieName, timeout)
 	if ses.IsExpired() {
-		t.Fatal("Session should not be expired")
+		t.Error("Session should not be expired")
 	}
 	ses.MarkSessionExpired()
 	if !ses.IsExpired() {
-		t.Fatal("Session should be expired")
+		t.Error("Session should be expired")
 	}
 }
 
@@ -39,7 +93,7 @@ func TestUpdateSessionExpiredTime(t *testing.T) {
 	ses.UpdateExpireTime(timeout)
 
 	if ses.ExpireTime().Before(firstTime) {
-		t.Fatal("Expired time not updated properly")
+		t.Error("Expired time not updated properly")
 	}
 }
 
@@ -48,13 +102,13 @@ func TestSessionCookie(t *testing.T) {
 	cookie := ses.SessionCookie()
 	// Should have a valid cookie
 	if cookie == nil || cookie.Name != sessionCookieName || cookie.Value != ses.CookieValue() || !ses.ExpireTime().Equal(cookie.Expires) || cookie.MaxAge != int(timeout.Seconds()) {
-		log.Fatal("Session cookie not created properly")
+		t.Error("Session cookie not created properly")
 	}
 
 	ses.Destroy()
 	cookie = ses.SessionCookie()
 	if cookie != nil {
-		log.Fatal("Cookie created for a destroyed session.")
+		t.Error("Cookie created for a destroyed session.")
 	}
 
 	ses.destroyed = false
@@ -62,6 +116,6 @@ func TestSessionCookie(t *testing.T) {
 	time.Sleep(time.Microsecond)
 	cookie = ses.SessionCookie()
 	if cookie != nil {
-		log.Fatal("Cookie created for an expired session")
+		t.Error("Cookie created for an expired session")
 	}
 }

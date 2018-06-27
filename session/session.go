@@ -52,7 +52,7 @@ func (s *Session) CookieValue() string {
 func (s *Session) HashPayload() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.username + s.selectorID
+	return s.username + s.sessionID
 }
 
 // SelectorID returns the session's selector ID
@@ -139,5 +139,5 @@ func (s *Session) Equals(other *Session) bool {
 	other.lock.RLock()
 	defer s.lock.RUnlock()
 	defer other.lock.RUnlock()
-	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed()
+	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed() && s.IsPersistant() == other.IsPersistant()
 }
