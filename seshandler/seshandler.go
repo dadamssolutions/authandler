@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dadamssolutions/seshandler/session"
+	"github.com/dadamssolutions/authandler/seshandler/session"
 )
 
 const (

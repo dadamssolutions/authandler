@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dadamssolutions/seshandler/session"
+	"github.com/dadamssolutions/authandler/seshandler/session"
 	"github.com/lib/pq"
 )
 

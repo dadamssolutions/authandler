@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dadamssolutions/seshandler/session"
+	"github.com/dadamssolutions/authandler/seshandler/session"
 	_ "github.com/lib/pq"
 )
 
