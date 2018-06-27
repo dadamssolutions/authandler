@@ -1,6 +1,9 @@
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +13,11 @@ var timeout = time.Minute
 var sessionCookieName = "sessionID"
 var selectorIDLength = 16
 var sessionIDLength = 64
+
+func hash(s string) string {
+	hashBytes := sha256.Sum256([]byte(s))
+	return url.QueryEscape(base64.RawURLEncoding.EncodeToString(hashBytes[:]))
+}
 
 func TestHashPayload(t *testing.T) {
 	ses := NewSession(strings.Repeat("A", 16), strings.Repeat("B", 64), strings.Repeat("C", 12), "sessionID", time.Second)
@@ -47,18 +55,18 @@ func TestSessionEquality(t *testing.T) {
 
 	ses2 := NewSession(strings.Repeat("A", 16), strings.Repeat("B", 64), strings.Repeat("C", 12), "sessionID", time.Second)
 
-	if !ses1.Equals(ses2) {
+	if !ses1.Equals(ses2, hash) {
 		t.Error("Equal sessions not identified as so")
 	}
 
 	ses1.persistant = false
-	if ses1.Equals(ses2) {
+	if ses1.Equals(ses2, hash) {
 		t.Error("Non-persisant and persistant sessions identified as equal")
 	}
 	ses1.persistant = true
 
 	ses1.Destroy()
-	if ses1.Equals(ses2) {
+	if ses1.Equals(ses2, hash) {
 		t.Error("Destroyed and active sessions identified as equal")
 	}
 	ses2.Destroy()
@@ -113,7 +121,7 @@ func TestSessionCookie(t *testing.T) {
 
 	ses.destroyed = false
 	ses.cookie.Expires = time.Now()
-	time.Sleep(time.Microsecond)
+	time.Sleep(time.Microsecond) // Wait for the session to be expired
 	cookie = ses.SessionCookie()
 	if cookie != nil {
 		t.Error("Cookie created for an expired session")

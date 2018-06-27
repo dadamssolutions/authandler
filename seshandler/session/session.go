@@ -1,3 +1,11 @@
+/*
+Package session contains a Session type used to track session cookies in HTTP responses.
+
+Each session will have a unique selector and session ID, be attached to a single user account,
+and can be persistant or session only.
+
+This package should be not be uses without seshandler which manages sessions for a server.
+*/
 package session
 
 import (
@@ -41,7 +49,7 @@ func (s *Session) SessionCookie() *http.Cookie {
 	return s.cookie
 }
 
-// CookieValue returns the value of the cookie sent with the response
+// CookieValue returns the value of the cookie to send with the response
 func (s *Session) CookieValue() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -134,10 +142,10 @@ func (s *Session) IsValid() bool {
 }
 
 // Equals returns whether other session is equal to this session
-func (s *Session) Equals(other *Session) bool {
+func (s *Session) Equals(other *Session, hash func(string) string) bool {
 	s.lock.RLock()
 	other.lock.RLock()
 	defer s.lock.RUnlock()
 	defer other.lock.RUnlock()
-	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed() && s.IsPersistant() == other.IsPersistant()
+	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed() && s.IsPersistant() == other.IsPersistant() && hash(s.HashPayload()) == hash(other.HashPayload())
 }

@@ -154,7 +154,7 @@ func TestParseSessionFromRequest(t *testing.T) {
 
 	r.AddCookie(ses.SessionCookie())
 	sesTest, err := sh.ParseSessionFromRequest(r)
-	if err != nil || !sesTest.Equals(ses) {
+	if err != nil || !sesTest.Equals(ses, hashString) {
 		log.Println(err)
 		t.Error("Cookie not parsed properly from request")
 	}
@@ -167,7 +167,7 @@ func TestSessionParsingFromCookie(t *testing.T) {
 	sesTest, err := sh.ParseSessionCookie(ses.SessionCookie())
 
 	// Should be a valid cookie
-	if err != nil || !ses.Equals(sesTest) {
+	if err != nil || !ses.Equals(sesTest, hashString) {
 		log.Println(err)
 		t.Error("Session cookie not parsed properly")
 	}
@@ -209,14 +209,14 @@ func TestAttachCookieToResponseWriter(t *testing.T) {
 	err := sh.AttachCookie(w, session)
 	resp := w.Result()
 	attachedSession, _ := sh.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || !session.Equals(attachedSession) {
+	if err != nil || !session.Equals(attachedSession, hashString) {
 		t.Error("Cookie not attached to response writer")
 	}
 
 	sh.DestroySession(session)
 	w = httptest.NewRecorder()
 	err = sh.AttachCookie(w, session)
-	if err == nil || session.Equals(attachedSession) {
+	if err == nil || session.Equals(attachedSession, hashString) {
 		t.Error("Invalid cookie attached to response writer")
 	}
 }
@@ -239,19 +239,19 @@ func TestValidateUserInputs(t *testing.T) {
 }
 
 func TestTimeoutOfNonPersistantCookies(t *testing.T) {
-	sh, _ := NewSesHandlerWithDB(db, time.Millisecond, time.Millisecond*100)
-	for i := 0; i < 5; i++ {
+	sh, _ := NewSesHandlerWithDB(db, time.Millisecond, time.Second)
+	for i := 0; i < 3; i++ {
 		ses1, _ := sh.CreateSession("dadams", true)
 		ses2, _ := sh.CreateSession("nadams", false)
 
-		time.Sleep(time.Millisecond) // Wait for a short time
+		time.Sleep(time.Microsecond * 50) // Wait for a short time
 
 		ses2, err := sh.UpdateSessionIfValid(ses2)
 		if err != nil || ses2.IsDestroyed() {
 			t.Error("Non-persistant session should not be destroyed yet")
 		}
 
-		time.Sleep(time.Millisecond * 60) // Wait for clean-up to fire
+		time.Sleep(time.Millisecond * 5) // Wait for clean-up to fire
 
 		// ses2 should not be destroyed
 		if sh.isValidSession(ses2) {
@@ -263,7 +263,7 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 			t.Error("A persistant session should be valid")
 		}
 
-		time.Sleep(time.Millisecond * 60)
+		time.Sleep(time.Second)
 
 		// Now ses1 should be destroyed
 		if sh.isValidSession(ses1) {

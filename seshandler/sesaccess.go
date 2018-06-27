@@ -38,8 +38,9 @@ func newDataAccess(db *sql.DB, sessionTimeout, persistantSessionTimeout time.Dur
 	if err != nil {
 		return sesAccess, err
 	}
-	c := time.Tick(60 * sessionTimeout)
-	// TODO: should we switch this to seconds?
+
+	// Each time this ticks, we will clean the database of old sessions.
+	c := time.Tick(sessionTimeout)
 	go sesAccess.cleanUpOldSessions(c, int(sessionTimeout/time.Microsecond), int(persistantSessionTimeout/time.Microsecond))
 	return sesAccess, nil
 }
@@ -49,17 +50,19 @@ func (s sesDataAccess) createTable() error {
 	if err != nil {
 		return databaseTableCreationError()
 	}
+	// Create the table we need in the database
 	_, err = tx.Exec(tableCreation)
 	if err != nil {
 		tx.Rollback()
 		return databaseTableCreationError()
 	}
+	log.Println("Sessions table created.")
 	return tx.Commit()
 }
 
 func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistantSessionTimeout int) {
+	log.Println("Waiting to clean old sessions...")
 	for range c {
-		log.Println("Cleaning up old session.")
 		tx, err := s.Begin()
 		if err != nil {
 			log.Println("We have stopped cleaning up old sessions")
@@ -79,11 +82,13 @@ func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, pe
 	}
 }
 
+// dropTable is used in testing to clear the database each time.
 func (s sesDataAccess) dropTable() error {
 	tx, err := s.Begin()
 	if err != nil {
 		return databaseTableCreationError()
 	}
+	// Drop the sessions table
 	_, err = tx.Exec(dropTable)
 	if err != nil {
 		tx.Rollback()
@@ -100,6 +105,8 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 	var err error
 	var tx *sql.Tx
 	var ses *session.Session
+
+	// We need to loop until we generate unique selector and session IDs
 	for true {
 		selectorID, sessionID = generateSelectorID(), generateSessionID()
 		tx, err = s.Begin()
@@ -111,7 +118,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
-				// This error code means that the uniqueness of id has been violated
+				// This error code means that the uniqueness of ids has been violated
 				// We try again in this case.
 				if string(e.Code) == "23505" {
 					tx.Rollback()
@@ -121,11 +128,14 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			tx.Rollback()
 			return nil, err
 		}
+		// We have the ids so we break and return
 		break
 	}
 	return ses, tx.Commit()
 }
 
+// getSessionInfo pulls the session out of the database.
+// No validation is done here. That must be done elsewhere.
 func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime time.Duration) (*session.Session, error) {
 	var dbHash, username string
 	var expires time.Time
@@ -142,6 +152,7 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime 
 		return nil, err
 	}
 	err = tx.Commit()
+	// If the session is persistant, then we set the expiration to maxLifetime
 	if persistant {
 		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, maxLifetime)
 	} else {
@@ -179,6 +190,7 @@ func (s sesDataAccess) destroySession(ses *session.Session) error {
 	return tx.Commit()
 }
 
+// updateSession indicates that the session is active and the expiration needs to be updated.
 func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Duration) error {
 	tx, err := s.Begin()
 	if err != nil {
@@ -194,9 +206,11 @@ func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Dura
 	return tx.Commit()
 }
 
+// validateSession pulls the info for a session out of the database and checks that the session is valid
+// i.e. neither destroyed nor expired
 func (s sesDataAccess) validateSession(ses *session.Session, maxLifetime time.Duration) error {
 	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), maxLifetime)
-	if err != nil || ses.SelectorID() != dbSession.SelectorID() || ses.Username() != dbSession.Username() || hashString(dbSession.HashPayload()) != hashString(ses.HashPayload()) || ses.IsPersistant() != dbSession.IsPersistant() {
+	if err != nil || !ses.Equals(dbSession, hashString) {
 		s.destroySession(ses)
 		return sessionNotInDatabaseError(ses.SelectorID())
 	}
