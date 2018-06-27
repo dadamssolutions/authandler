@@ -149,7 +149,6 @@ func TestSessionParsingFromCookie(t *testing.T) {
 
 	// The session is not in the database so should be invalid
 	ses.UpdateExpireTime(time.Second)
-	//ses.cookie.Value = ses.CookieValue()
 	cookie = ses.SessionCookie()
 	sesTest, err = sh.ParseSessionCookie(cookie)
 	if err == nil || sesTest != nil {
@@ -161,6 +160,21 @@ func TestSessionParsingFromCookie(t *testing.T) {
 	sesTest, err = sh.ParseSessionCookie(cookie)
 	if err == nil || sesTest != nil {
 		t.Fatal("Session cookie should be invalid")
+	}
+}
+
+func TestParsingCookieDetectsPersistance(t *testing.T) {
+	sesP, _ := sh.CreateSession("dadams", true)
+	ses, _ := sh.CreateSession("nadams", false)
+
+	sesPTest, _ := sh.ParseSessionCookie(sesP.SessionCookie())
+	if sesPTest == nil || !sesPTest.IsPersistant() {
+		log.Fatal("Persistant cookie parsed as non-persistant")
+	}
+
+	sesTest, _ := sh.ParseSessionCookie(ses.SessionCookie())
+	if sesTest == nil || sesTest.IsPersistant() {
+		log.Fatal("Non-persistant cookie parsed as persistant")
 	}
 }
 

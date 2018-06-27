@@ -126,6 +126,30 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 	return ses, tx.Commit()
 }
 
+func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime time.Duration) (*session.Session, error) {
+	var dbHash, username string
+	var expires time.Time
+	var persistant bool
+	var ses *session.Session
+	tx, err := s.Begin()
+	if err != nil {
+		return nil, err
+	}
+	queryString := fmt.Sprintf(getSessionInfo, selectorID)
+	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &expires, &persistant)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	err = tx.Commit()
+	if persistant {
+		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, maxLifetime)
+	} else {
+		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, 0)
+	}
+	return ses, err
+}
+
 func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
 	tx, err := s.Begin()
 	if err != nil {
@@ -170,26 +194,16 @@ func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Dura
 	return tx.Commit()
 }
 
-func (s sesDataAccess) validateSession(ses *session.Session) error {
-	tx, err := s.Begin()
-	if err != nil {
-		return err
-	}
-	var dbHash, selectorID, username string
-	var expires time.Time
-	var persistant bool
-	queryString := fmt.Sprintf(getSessionInfo, ses.SelectorID())
-	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &expires, &persistant)
-	if err != nil || ses.SelectorID() != selectorID || ses.Username() != username || ses.IsPersistant() != persistant {
-		tx.Rollback()
+func (s sesDataAccess) validateSession(ses *session.Session, maxLifetime time.Duration) error {
+	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), maxLifetime)
+	if err != nil || ses.SelectorID() != dbSession.SelectorID() || ses.Username() != dbSession.Username() || hashString(dbSession.HashPayload()) != hashString(ses.HashPayload()) || ses.IsPersistant() != dbSession.IsPersistant() {
 		s.destroySession(ses)
 		return sessionNotInDatabaseError(ses.SelectorID())
 	}
 
 	if !ses.IsValid() {
-		tx.Rollback()
 		s.destroySession(ses)
 		return sessionExpiredError(ses.SelectorID())
 	}
-	return tx.Commit()
+	return nil
 }

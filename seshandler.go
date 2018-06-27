@@ -91,7 +91,7 @@ func (sh *SesHandler) DestroySession(ses *session.Session) error {
 func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 	validInputs := sh.validateUserInputs(ses)
 	if validInputs {
-		if err := sh.dataAccess.validateSession(ses); err == nil {
+		if err := sh.dataAccess.validateSession(ses, sh.maxLifetime); err == nil {
 			return true
 		}
 	}
@@ -147,6 +147,7 @@ func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session
 // ParseSessionCookie takes a cookie, determines if there is a valid session cookie,
 // and returns the session, if it exists.
 func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session, error) {
+	var ses *session.Session
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
 	if err != nil || cookie.Name != sessionCookieName || len(cookieStrings) != 3 {
@@ -155,7 +156,17 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 	}
 
 	selectorID, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
-	ses := session.NewSession(selectorID, sessionID, username, sessionCookieName, sh.maxLifetime)
+	// Get the info on the session from the database
+	dbSession, err := sh.dataAccess.getSessionInfo(selectorID, sessionID, sh.maxLifetime)
+	if err != nil {
+		return nil, invalidSessionCookie()
+	}
+	// The only thing we really need from this right now is whether the session is persistant.
+	if dbSession.IsPersistant() {
+		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, sh.maxLifetime)
+	} else {
+		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, 0)
+	}
 	if !sh.isValidSession(ses) {
 		return nil, invalidSessionCookie()
 	}
