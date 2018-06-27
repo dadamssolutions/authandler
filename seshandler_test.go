@@ -11,12 +11,34 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/seshandler/session"
+	_ "github.com/lib/pq"
 )
 
 var timeout = time.Minute
 var db, err = sql.Open("postgres", "user=test dbname=postgres sslmode=disable")
 var da sesDataAccess
 var sh *SesHandler
+
+func TestBadDatabaseConnectionError(t *testing.T) {
+	// Pass nil to get a bad database error
+	_, err := newDataAccess(nil, timeout, timeout)
+	if err == nil {
+		t.Fatal(err)
+	}
+
+	// Open a bad database to test errors
+	dbt, err := sql.Open("postgres", "user=test dbname=")
+
+	_, err = newDataAccess(dbt, timeout, timeout)
+	if err == nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewSesHandlerWithDB(dbt, timeout, timeout)
+	if err == nil {
+		t.Fatal(err)
+	}
+}
 
 func TestIDGenerators(t *testing.T) {
 	id := generateSelectorID()

@@ -32,7 +32,7 @@ func newDataAccess(db *sql.DB, sessionTimeout, persistantSessionTimeout time.Dur
 	sesAccess := sesDataAccess{db, &sync.RWMutex{}}
 	if sesAccess.DB == nil {
 		log.Println("Cannot connect to the database")
-		return sesAccess, nil
+		return sesAccess, badDatabaseConnectionError()
 	}
 	err := sesAccess.createTable()
 	if err != nil {
