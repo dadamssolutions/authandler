@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authandler/seshandler"
+	_ "github.com/lib/pq" // Database driver
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -42,7 +43,7 @@ func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSession
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
 	}
-	return NewHTTPAuth(dbURL, driverName, sessionTimeout, persistantSessionTimeout, g, bcrypt.CompareHashAndPassword)
+	return NewHTTPAuth(driverName, dbURL, sessionTimeout, persistantSessionTimeout, g, bcrypt.CompareHashAndPassword)
 }
 
 // HandleFuncHTTPSRedirect is like http.HandleFunc except it is verified the request was via https protocol.
@@ -61,7 +62,8 @@ func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *ht
 // HandleFuncAuth is like http.HandleFunc except it is verified the user is logged in.
 func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
-		if a.userIsAuthenticated(r) {
+		if !a.userIsAuthenticated(r) {
+			log.Printf("User requesting %v but is not logged in. Redirecting to login page\n", r.URL)
 			http.Redirect(w, r, "/login", http.StatusFound)
 		} else {
 			handler(w, r)
