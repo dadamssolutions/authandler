@@ -16,6 +16,8 @@ import (
 type HTTPAuth struct {
 	db                       *sql.DB
 	ses                      *seshandler.SesHandler
+	LoginURL                 string
+	LogoutURL                string
 	GenerateHashFromPassword func([]byte) ([]byte, error)
 	CompareHashAndPassword   func([]byte, []byte) error
 }
@@ -33,7 +35,7 @@ func NewHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSessionTime
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")
 	}
-	return &HTTPAuth{db: db, ses: ses, GenerateHashFromPassword: g, CompareHashAndPassword: c}, nil
+	return &HTTPAuth{db: db, ses: ses, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout"}, nil
 }
 
 // DefaultHTTPAuth uses the standard bcyrpt functions for
@@ -64,7 +66,7 @@ func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Reques
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
 		if !a.userIsAuthenticated(r) {
 			log.Printf("User requesting %v but is not logged in. Redirecting to login page\n", r.URL)
-			http.Redirect(w, r, "/login", http.StatusFound)
+			http.Redirect(w, r, a.LoginURL, http.StatusFound)
 		} else {
 			handler(w, r)
 		}
