@@ -251,11 +251,11 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 			t.Error("Non-persistant session should not be destroyed yet")
 		}
 
-		time.Sleep(time.Millisecond * 5) // Wait for clean-up to fire
+		time.Sleep(time.Millisecond * 10) // Wait for clean-up to fire
 
 		// ses2 should not be destroyed
 		if sh.isValidSession(ses2) {
-			t.Error("Non-persistant session should now be destroyed")
+			t.Error("Non-persistant session should not be destroyed")
 		}
 
 		// Now ses1 should be in the database.
