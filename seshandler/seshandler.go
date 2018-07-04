@@ -112,7 +112,7 @@ func (sh *SesHandler) DestroySession(ses *session.Session) error {
 // isValidSession determines if the given session is valid.
 func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 	// First we check that the inputs have not been tampered with
-	if sh.validateUserInputs(ses) {
+	if ses != nil || sh.validateUserInputs(ses) {
 		// The we check the session against the session in the database
 		if err := sh.dataAccess.validateSession(ses, sh.maxLifetime); err == nil {
 			return true
