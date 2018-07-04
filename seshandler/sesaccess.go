@@ -1,9 +1,13 @@
 package seshandler
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"log"
+	"net/url"
 	"sync"
 	"time"
 
@@ -13,14 +17,14 @@ import (
 
 const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
-	tableCreation      = "CREATE TABLE IF NOT EXISTS sessions (selector char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector));"
+	tableCreation      = "CREATE TABLE IF NOT EXISTS sessions (selector char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM sessions;"
 	dropTable          = "DROP TABLE sessions;"
 	insertSession      = "INSERT INTO sessions(selector, session_hash, user_id, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v');"
 	userSessionExists  = "SELECT count(*) FROM sessions WHERE user_id = '%v';"
 	deleteSession      = "DELETE FROM sessions WHERE selector = '%v';"
 	getSessionInfo     = "SELECT selector, session_hash, user_id, expiration, persistant FROM sessions WHERE selector = '%v';"
 	updateSession      = "UPDATE sessions SET expiration = '%v' WHERE selector = '%v';"
-	cleanUpOldSessions = "DELETE FROM sessions WHERE (NOT persistant AND created < NOW() - INTERVAL '%v MICROSECOND') OR (persistant AND expiration < NOW() - INTERVAL '%v MICROSECOND');"
+	cleanUpOldSessions = "DELETE FROM sessions WHERE (NOT persistant AND created < NOW() - INTERVAL '%v SECONDS') OR (persistant AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
 type sesDataAccess struct {
@@ -36,13 +40,50 @@ func newDataAccess(db *sql.DB, sessionTimeout, persistantSessionTimeout time.Dur
 	}
 	err := sesAccess.createTable()
 	if err != nil {
+		log.Printf("Could not create the table in the database: %v\n", err)
 		return sesAccess, err
 	}
 
 	// Each time this ticks, we will clean the database of old sessions.
 	c := time.Tick(sessionTimeout)
-	go sesAccess.cleanUpOldSessions(c, int(sessionTimeout/time.Microsecond), int(persistantSessionTimeout/time.Microsecond))
+	go sesAccess.cleanUpOldSessions(c, sessionTimeout.Seconds(), persistantSessionTimeout.Seconds())
 	return sesAccess, nil
+}
+
+// hashString is a helper function to has the session ID before putting it into the database
+func (s sesDataAccess) hashString(data string) string {
+	hashBytes := sha256.Sum256([]byte(data))
+	return url.QueryEscape(base64.RawURLEncoding.EncodeToString(hashBytes[:]))
+}
+
+// generateRandomString is a helper function to find selector and session IDs
+func (s sesDataAccess) generateRandomString(length int) string {
+	if length <= 0 {
+		log.Panicln("Cannot generate a random string of negative length")
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	b := make([]byte, length)
+	st := ""
+	for true {
+		_, err := rand.Read(b)
+		if err != nil {
+			log.Panicf("ERROR: %v\n", err)
+		}
+		st = base64.RawURLEncoding.EncodeToString(b)[:length]
+		if url.QueryEscape(st) == st {
+			break
+		}
+	}
+	return st
+}
+
+func (s sesDataAccess) generateSelectorID() string {
+	return s.generateRandomString(selectorIDLength)
+}
+
+func (s sesDataAccess) generateSessionID() string {
+	return s.generateRandomString(sessionIDLength)
 }
 
 func (s sesDataAccess) createTable() error {
@@ -56,13 +97,14 @@ func (s sesDataAccess) createTable() error {
 		tx.Rollback()
 		return databaseTableCreationError()
 	}
-	log.Println("Sessions table created.")
+	log.Println("Sessions table created")
 	return tx.Commit()
 }
 
-func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistantSessionTimeout int) {
+func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistantSessionTimeout float64) {
 	log.Println("Waiting to clean old sessions...")
 	for range c {
+		log.Println("Cleaning old sessions...")
 		tx, err := s.Begin()
 		if err != nil {
 			log.Println("We have stopped cleaning up old sessions")
@@ -71,12 +113,18 @@ func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, pe
 		}
 		// Clean up old sessions that are not persistant and are older than maxLifetimeSessionOnly
 		// Also clean up old expired persistant sessions.
-		_, err = tx.Exec(fmt.Sprintf(cleanUpOldSessions, sessionTimeout, persistantSessionTimeout))
+		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, sessionTimeout, persistantSessionTimeout))
 		if err != nil {
 			tx.Rollback()
 			log.Println("We have stopped cleaning up old sessions")
 			log.Println(err)
 			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			selectorDeleted := ""
+			rows.Scan(&selectorDeleted)
+			log.Printf("Deleted session with selector %v\n", selectorDeleted)
 		}
 		tx.Commit()
 	}
@@ -108,13 +156,13 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 
 	// We need to loop until we generate unique selector and session IDs
 	for true {
-		selectorID, sessionID = generateSelectorID(), generateSessionID()
+		selectorID, sessionID = s.generateSelectorID(), s.generateSessionID()
 		tx, err = s.Begin()
 		if err != nil {
 			return nil, err
 		}
 		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, maxLifetime)
-		queryString := fmt.Sprintf(insertSession, ses.SelectorID(), hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
+		queryString := fmt.Sprintf(insertSession, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
@@ -126,9 +174,11 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 				}
 			}
 			tx.Rollback()
+			log.Println(err)
 			return nil, err
 		}
 		// We have the ids so we break and return
+		log.Printf("Session with selector %v created\n", ses.SelectorID())
 		break
 	}
 	return ses, tx.Commit()
@@ -187,6 +237,7 @@ func (s sesDataAccess) destroySession(ses *session.Session) error {
 	queryString := fmt.Sprintf(deleteSession, ses.SelectorID())
 	tx.Exec(queryString)
 	ses.Destroy()
+	log.Printf("Session with selector %v destroyed\n", ses.SelectorID())
 	return tx.Commit()
 }
 
@@ -210,13 +261,14 @@ func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Dura
 // i.e. neither destroyed nor expired
 func (s sesDataAccess) validateSession(ses *session.Session, maxLifetime time.Duration) error {
 	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), maxLifetime)
-	if err != nil || !ses.Equals(dbSession, hashString) {
+	if err != nil || !ses.Equals(dbSession, s.hashString) {
 		s.destroySession(ses)
 		return sessionNotInDatabaseError(ses.SelectorID())
 	}
 
 	if !ses.IsValid() {
 		s.destroySession(ses)
+		log.Printf("Session %v is not valid so we destroyed it", ses.SelectorID())
 		return sessionExpiredError(ses.SelectorID())
 	}
 	return nil

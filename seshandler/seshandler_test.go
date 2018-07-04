@@ -41,13 +41,13 @@ func TestBadDatabaseConnectionError(t *testing.T) {
 }
 
 func TestIDGenerators(t *testing.T) {
-	id := generateSelectorID()
+	id := sh.dataAccess.generateSelectorID()
 	if len(id) != selectorIDLength {
 		t.Errorf("Selector ID is not of the expected length. %v != %v", len(id), selectorIDLength)
 	}
 
-	id = generateSessionID()
-	if len(generateSessionID()) != sessionIDLength {
+	id = sh.dataAccess.generateSessionID()
+	if len(id) != sessionIDLength {
 		t.Errorf("Session ID is not of the expected length. %v != %v", len(id), sessionIDLength)
 	}
 }
@@ -154,7 +154,7 @@ func TestParseSessionFromRequest(t *testing.T) {
 
 	r.AddCookie(ses.SessionCookie())
 	sesTest, err := sh.ParseSessionFromRequest(r)
-	if err != nil || !sesTest.Equals(ses, hashString) {
+	if err != nil || !sesTest.Equals(ses, sh.dataAccess.hashString) {
 		log.Println(err)
 		t.Error("Cookie not parsed properly from request")
 	}
@@ -167,7 +167,7 @@ func TestSessionParsingFromCookie(t *testing.T) {
 	sesTest, err := sh.ParseSessionCookie(ses.SessionCookie())
 
 	// Should be a valid cookie
-	if err != nil || !ses.Equals(sesTest, hashString) {
+	if err != nil || !ses.Equals(sesTest, sh.dataAccess.hashString) {
 		log.Println(err)
 		t.Error("Session cookie not parsed properly")
 	}
@@ -208,29 +208,29 @@ func TestAttachCookieToResponseWriter(t *testing.T) {
 	w := httptest.NewRecorder()
 	err := sh.AttachCookie(w, session)
 	resp := w.Result()
-	attachedSession, _ := sh.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || !session.Equals(attachedSession, hashString) {
+	attachedSession, err := sh.ParseSessionCookie(resp.Cookies()[0])
+	if err != nil || !session.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Cookie not attached to response writer")
 	}
 
 	sh.DestroySession(session)
 	w = httptest.NewRecorder()
 	err = sh.AttachCookie(w, session)
-	if err == nil || session.Equals(attachedSession, hashString) {
+	if err == nil || session.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Invalid cookie attached to response writer")
 	}
 }
 
 func TestValidateUserInputs(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		ses := session.NewSession(generateSelectorID(), generateSessionID(), generateRandomString(12), sessionCookieName, 0)
+		ses := session.NewSession(sh.dataAccess.generateSelectorID(), sh.dataAccess.generateSessionID(), sh.dataAccess.generateRandomString(12), sessionCookieName, 0)
 		if !sh.validateUserInputs(ses) {
 			t.Error("Session should have IDs and username")
 		}
 	}
 
 	for i := 0; i < 100; i++ {
-		ses := session.NewSession(generateSelectorID(), generateSessionID(), generateRandomString(12)+" "+generateRandomString(9), sessionCookieName, 0)
+		ses := session.NewSession(sh.dataAccess.generateSelectorID(), sh.dataAccess.generateSessionID(), sh.dataAccess.generateRandomString(12)+" "+sh.dataAccess.generateRandomString(9), sessionCookieName, 0)
 		if sh.validateUserInputs(ses) {
 			log.Println(ses)
 			t.Error("Session should NOT have IDs and username")
@@ -239,36 +239,44 @@ func TestValidateUserInputs(t *testing.T) {
 }
 
 func TestTimeoutOfNonPersistantCookies(t *testing.T) {
-	sh, _ := NewSesHandlerWithDB(db, time.Millisecond, time.Second)
-	for i := 0; i < 3; i++ {
-		ses1, _ := sh.CreateSession("dadams", true)
-		ses2, _ := sh.CreateSession("nadams", false)
+	sh, _ := NewSesHandlerWithDB(db, 500*time.Millisecond, time.Second)
+	ses1, _ := sh.CreateSession("dadams", true)
+	ses2, _ := sh.CreateSession("nadams", false)
 
-		time.Sleep(time.Microsecond * 50) // Wait for a short time
+	time.Sleep(time.Millisecond * 25) // Wait for a short time
 
-		ses2, err := sh.UpdateSessionIfValid(ses2)
-		if err != nil || ses2.IsDestroyed() {
-			t.Error("Non-persistant session should not be destroyed yet")
-		}
+	ses2, err := sh.UpdateSessionIfValid(ses2)
+	if err != nil || ses2.IsDestroyed() {
+		t.Error("Non-persistant session should not be destroyed yet")
+	}
 
-		time.Sleep(time.Millisecond * 10) // Wait for clean-up to fire
+	time.Sleep(time.Millisecond * 500) // Wait for clean-up to fire
 
-		// ses2 should not be destroyed
-		if sh.isValidSession(ses2) {
-			t.Error("Non-persistant session should not be destroyed")
-		}
+	// ses2 should not be destroyed
+	if !sh.isValidSession(ses2) {
+		t.Error("Non-persistant session should not be destroyed")
+	}
 
-		// Now ses1 should be in the database.
-		if !sh.isValidSession(ses1) {
-			t.Error("A persistant session should be valid")
-		}
+	// Update the persistant session so it stays in the database
+	ses1, _ = sh.UpdateSessionIfValid(ses1)
 
-		time.Sleep(time.Second)
+	time.Sleep(time.Millisecond * 500) // Wait for clean-up to fire
 
-		// Now ses1 should be destroyed
-		if sh.isValidSession(ses1) {
-			t.Error("A persistant session should now be invalid")
-		}
+	// ses2 should now be destroyed
+	if sh.isValidSession(ses2) {
+		t.Error("Non-persistant session should now be destroyed")
+	}
+
+	// Now ses1 should be in the database.
+	if !sh.isValidSession(ses1) {
+		t.Error("A persistant session should be valid")
+	}
+
+	time.Sleep(time.Second)
+
+	// Now ses1 should be destroyed
+	if sh.isValidSession(ses1) {
+		t.Error("A persistant session should now be invalid")
 	}
 }
 func TestMain(m *testing.M) {

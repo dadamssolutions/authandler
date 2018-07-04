@@ -18,10 +18,7 @@ This package is best used with an authentication handler.
 package seshandler
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"log"
 	"net/http"
 	"net/url"
@@ -38,33 +35,6 @@ const (
 	sessionIDLength   = 64
 )
 
-// hashString is a helper function to has the session ID before putting it into the database
-func hashString(data string) string {
-	hashBytes := sha256.Sum256([]byte(data))
-	return url.QueryEscape(base64.RawURLEncoding.EncodeToString(hashBytes[:]))
-}
-
-// generateRandomString is a helper function to find selector and session IDs
-func generateRandomString(length int) string {
-	if length <= 0 {
-		log.Panicln("Cannot generate a random string of negative length")
-	}
-	b := make([]byte, length)
-	_, err := rand.Read(b)
-	if err != nil {
-		log.Panicf("ERROR: %v\n", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(b)[:length]
-}
-
-func generateSelectorID() string {
-	return generateRandomString(selectorIDLength)
-}
-
-func generateSessionID() string {
-	return generateRandomString(sessionIDLength)
-}
-
 // SesHandler creates and maintains session in a database.
 type SesHandler struct {
 	dataAccess  sesDataAccess
@@ -77,7 +47,11 @@ type SesHandler struct {
 // If either timeout <= 0, then it is set to 0 (session only cookies).
 func NewSesHandlerWithDB(db *sql.DB, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*SesHandler, error) {
 	da, err := newDataAccess(db, sessionTimeout, persistantSessionTimeout)
-	return newSesHandler(da, persistantSessionTimeout), err
+	if err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	return newSesHandler(da, persistantSessionTimeout), nil
 }
 
 func newSesHandler(da sesDataAccess, timeout time.Duration) *SesHandler {
@@ -112,9 +86,11 @@ func (sh *SesHandler) DestroySession(ses *session.Session) error {
 // isValidSession determines if the given session is valid.
 func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 	// First we check that the inputs have not been tampered with
-	if ses != nil || sh.validateUserInputs(ses) {
+	if sh.validateUserInputs(ses) {
 		// The we check the session against the session in the database
-		if err := sh.dataAccess.validateSession(ses, sh.maxLifetime); err == nil {
+		if err := sh.dataAccess.validateSession(ses, sh.maxLifetime); err != nil {
+			log.Println(err)
+		} else {
 			return true
 		}
 	}
@@ -186,6 +162,7 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 	// Get the info on the session from the database
 	dbSession, err := sh.dataAccess.getSessionInfo(selectorID, sessionID, sh.maxLifetime)
 	if err != nil {
+		log.Printf("Database returned an error for selector ID %v\n", selectorID)
 		return nil, invalidSessionCookie()
 	}
 	// The only thing we really need from this right now is whether the session is persistant.
