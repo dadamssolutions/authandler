@@ -94,6 +94,6 @@ func TestMain(m *testing.M) {
 	}
 	exitCode := m.Run()
 	// Wait a little bit for the sessions to be removed
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Second)
 	os.Exit(exitCode)
 }
