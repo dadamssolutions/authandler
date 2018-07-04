@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authandler/seshandler"
+	"github.com/dadamssolutions/authandler/seshandler/session"
 	_ "github.com/lib/pq" // Database driver
 	"golang.org/x/crypto/bcrypt"
 )
@@ -52,9 +53,9 @@ func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSession
 func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !a.isHTTPS(r) {
-			httpsURL := r.URL
-			log.Printf("Non-HTTPS request redirected to https://%v%v\n", r.Host, httpsURL)
-			http.Redirect(w, r, "", http.StatusTemporaryRedirect)
+			httpsURL := "https://" + r.Host + r.RequestURI
+			log.Printf("Non-HTTPS request redirected to %v\n", httpsURL)
+			http.Redirect(w, r, httpsURL, http.StatusTemporaryRedirect)
 		} else {
 			handler(w, r)
 		}
@@ -64,10 +65,12 @@ func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *ht
 // HandleFuncAuth is like http.HandleFunc except it is verified the user is logged in.
 func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
-		if !a.userIsAuthenticated(r) {
+		ses, err := a.userIsAuthenticated(r)
+		if err != nil {
 			log.Printf("User requesting %v but is not logged in. Redirecting to login page\n", r.URL)
 			http.Redirect(w, r, a.LoginURL, http.StatusFound)
 		} else {
+			log.Printf("User %v is logged in, handling request %v", ses.Username(), r.URL)
 			handler(w, r)
 		}
 	})
@@ -77,8 +80,7 @@ func (a *HTTPAuth) isHTTPS(r *http.Request) bool {
 	return r.TLS != nil && r.TLS.HandshakeComplete
 }
 
-func (a *HTTPAuth) userIsAuthenticated(r *http.Request) bool {
+func (a *HTTPAuth) userIsAuthenticated(r *http.Request) (*session.Session, error) {
 	// Check that the user is logged in by looking for a session cookie
-	_, err := a.ses.ParseSessionFromRequest(r)
-	return err == nil
+	return a.ses.ParseSessionFromRequest(r)
 }
