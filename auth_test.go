@@ -62,18 +62,19 @@ func TestUserLoggedInHandler(t *testing.T) {
 	client.CheckRedirect = checkRedirect
 
 	req, _ := http.NewRequest("GET", ts.URL, nil)
-	w := httptest.NewRecorder()
 
 	// Create the user logged in session
-	ses, _ := a.ses.CreateSession("dadams", false)
-
-	a.ses.AttachCookie(w, ses)
-	req.AddCookie(w.Result().Cookies()[0])
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
 
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
 		log.Printf("Status code: %v with error: %v\n", resp.Status, err)
 		t.Error("Redirected, but user is logged in")
+	}
+
+	if len(resp.Cookies()) == 0 || resp.Cookies()[0].Name != ses.SessionCookie().Name || resp.Cookies()[0].Value != ses.CookieValue() {
+		t.Error("Cookie attached to response does not correspond to the session")
 	}
 }
 

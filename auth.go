@@ -16,7 +16,7 @@ import (
 // HTTPAuth is a general handler that authenticates a user for http requests.
 type HTTPAuth struct {
 	db                       *sql.DB
-	ses                      *seshandler.SesHandler
+	sesHandler               *seshandler.SesHandler
 	LoginURL                 string
 	LogoutURL                string
 	GenerateHashFromPassword func([]byte) ([]byte, error)
@@ -36,7 +36,7 @@ func NewHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSessionTime
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")
 	}
-	return &HTTPAuth{db: db, ses: ses, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout"}, nil
+	return &HTTPAuth{db: db, sesHandler: ses, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout"}, nil
 }
 
 // DefaultHTTPAuth uses the standard bcyrpt functions for
@@ -71,6 +71,7 @@ func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Reques
 			http.Redirect(w, r, a.LoginURL, http.StatusFound)
 		} else {
 			log.Printf("User %v is logged in, handling request %v", ses.Username(), r.URL)
+			a.sesHandler.AttachCookie(w, ses)
 			handler(w, r)
 		}
 	})
@@ -82,5 +83,5 @@ func (a *HTTPAuth) isHTTPS(r *http.Request) bool {
 
 func (a *HTTPAuth) userIsAuthenticated(r *http.Request) (*session.Session, error) {
 	// Check that the user is logged in by looking for a session cookie
-	return a.ses.ParseSessionFromRequest(r)
+	return a.sesHandler.ParseSessionFromRequest(r)
 }
