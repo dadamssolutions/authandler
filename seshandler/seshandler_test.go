@@ -147,13 +147,13 @@ func TestSessionExistsForUser(t *testing.T) {
 func TestParseSessionFromRequest(t *testing.T) {
 	ses, _ := sh.CreateSession("dadams", true)
 	r, _ := http.NewRequest("GET", "/", nil)
-	_, err := sh.ParseSessionFromRequest(r)
-	if err == nil {
+	sesTest, err := sh.ParseSessionFromRequest(r)
+	if err == nil || sesTest != nil {
 		t.Error("Cookie was parsed where none exists")
 	}
 
 	r.AddCookie(ses.SessionCookie())
-	sesTest, err := sh.ParseSessionFromRequest(r)
+	sesTest, err = sh.ParseSessionFromRequest(r)
 	if err != nil || !sesTest.Equals(ses, sh.dataAccess.hashString) {
 		log.Println(err)
 		t.Error("Cookie not parsed properly from request")
