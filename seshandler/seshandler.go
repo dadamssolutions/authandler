@@ -149,7 +149,6 @@ func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session
 // ParseSessionCookie takes a cookie, determines if it is a valid session cookie,
 // and returns the session, if it exists.
 func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session, error) {
-	var ses *session.Session
 	// Break the cookie into its parts.
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
@@ -165,17 +164,12 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 		log.Printf("Database returned an error for selector ID %v\n", selectorID)
 		return nil, invalidSessionCookie()
 	}
-	// The only thing we really need from this right now is whether the session is persistant.
-	if dbSession.IsPersistant() {
-		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, sh.maxLifetime)
-	} else {
-		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, 0)
-	}
 	// Make sure the session is valid before returning it
-	if !sh.isValidSession(ses) {
+	if !sh.isValidSession(dbSession) || dbSession.Username() != username {
+		sh.DestroySession(dbSession)
 		return nil, invalidSessionCookie()
 	}
-	return ses, nil
+	return dbSession, nil
 }
 
 // AttachCookie sets a cookie on a ResponseWriter
