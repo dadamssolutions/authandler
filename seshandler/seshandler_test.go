@@ -160,6 +160,17 @@ func TestParseSessionFromRequest(t *testing.T) {
 	}
 }
 
+func TestParsedSessionOfInvalidCookie(t *testing.T) {
+	ses, _ := sh.CreateSession("dadams", true)
+	r, _ := http.NewRequest("GET", "/", nil)
+	r.AddCookie(ses.SessionCookie())
+	sh.DestroySession(ses)
+	sesTest, err := sh.ParseSessionFromRequest(r)
+	if err == nil || sesTest != nil {
+		t.Error("Cookie was parsed for destoyed session")
+	}
+}
+
 func TestSessionParsingFromCookie(t *testing.T) {
 	ses, _ := sh.CreateSession("dadams", true)
 	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", sessionCookieName, sh.maxLifetime)
