@@ -179,17 +179,19 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 }
 
 // AttachCookie sets a cookie on a ResponseWriter
-func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) error {
+// A session is returned because the session may have changed when it is updated
+func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) (*session.Session, error) {
 	// Need to save the selector incase the call to UpdateSessionIfValid returns an error
+	var err error
 	selectorID := ses.SelectorID()
-	ses, err := sh.UpdateSessionIfValid(ses)
+	ses, err = sh.UpdateSessionIfValid(ses)
 	if err != nil {
 		log.Println("Invalid session with ID " + selectorID + ": no cookie returned")
-		return invalidSessionError(selectorID)
+		return ses, invalidSessionError(selectorID)
 	}
 	// Attach the cookie to the response writer
 	http.SetCookie(w, ses.SessionCookie())
-	return nil
+	return ses, nil
 }
 
 func (sh *SesHandler) validateUserInputs(ses *session.Session) bool {

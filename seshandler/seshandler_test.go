@@ -203,20 +203,38 @@ func TestParsingCookieDetectsPersistance(t *testing.T) {
 	}
 }
 
-func TestAttachCookieToResponseWriter(t *testing.T) {
+func TestAttachPersistantCookieToResponseWriter(t *testing.T) {
 	session, _ := sh.CreateSession("dadams", true)
 	w := httptest.NewRecorder()
-	err := sh.AttachCookie(w, session)
+	ses, err := sh.AttachCookie(w, session)
 	resp := w.Result()
 	attachedSession, err := sh.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || !session.Equals(attachedSession, sh.dataAccess.hashString) {
+	if err != nil || !session.Equals(attachedSession, sh.dataAccess.hashString) || !session.Equals(ses, sh.dataAccess.hashString) {
 		t.Error("Cookie not attached to response writer")
 	}
 
 	sh.DestroySession(session)
 	w = httptest.NewRecorder()
-	err = sh.AttachCookie(w, session)
-	if err == nil || session.Equals(attachedSession, sh.dataAccess.hashString) {
+	ses, err = sh.AttachCookie(w, session)
+	if err == nil || ses != nil || session.Equals(attachedSession, sh.dataAccess.hashString) {
+		t.Error("Invalid cookie attached to response writer")
+	}
+}
+
+func TestAttachSessionOnlyCookieToResponseWriter(t *testing.T) {
+	session, _ := sh.CreateSession("dadams", false)
+	w := httptest.NewRecorder()
+	ses, err := sh.AttachCookie(w, session)
+	resp := w.Result()
+	attachedSession, err := sh.ParseSessionCookie(resp.Cookies()[0])
+	if err != nil || !ses.Equals(attachedSession, sh.dataAccess.hashString) || session.Equals(attachedSession, sh.dataAccess.hashString) {
+		t.Error("Cookie not attached to response writer")
+	}
+
+	sh.DestroySession(ses)
+	w = httptest.NewRecorder()
+	_, err = sh.AttachCookie(w, session)
+	if err == nil || ses.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Invalid cookie attached to response writer")
 	}
 }
