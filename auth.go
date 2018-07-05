@@ -52,7 +52,7 @@ func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSession
 // HandleFuncHTTPSRedirect is like http.HandleFunc except it is verified the request was via https protocol.
 func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !a.isHTTPS(r) {
+		if isHTTPS(r) {
 			httpsURL := "https://" + r.Host + r.RequestURI
 			log.Printf("Non-HTTPS request redirected to %v\n", httpsURL)
 			http.Redirect(w, r, httpsURL, http.StatusTemporaryRedirect)
@@ -77,7 +77,7 @@ func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Reques
 	})
 }
 
-func (a *HTTPAuth) isHTTPS(r *http.Request) bool {
+func isHTTPS(r *http.Request) bool {
 	return r.TLS != nil && r.TLS.HandshakeComplete
 }
 
