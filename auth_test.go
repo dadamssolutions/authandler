@@ -78,6 +78,58 @@ func TestUserLoggedInHandler(t *testing.T) {
 	}
 }
 
+func TestCurrentUserBadCookie(t *testing.T) {
+	req, _ := http.NewRequest("GET", "/", nil)
+
+	if a.CurrentUser(req) != "" {
+		t.Error("No cookie in request should return empty string")
+	}
+
+	// Create the user logged in session
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+	a.sesHandler.DestroySession(ses)
+
+	if a.CurrentUser(req) != "" {
+		t.Error("Destroyed cookie in request should return empty string")
+	}
+}
+
+func TestCurrentUserGoodCookie(t *testing.T) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	// Create the user logged in session
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+
+	if a.CurrentUser(req) != "dadams" {
+		t.Error("Valid cookie in request should return correct username")
+	}
+}
+
+func TestIsCurrentUser(t *testing.T) {
+	req, _ := http.NewRequest("GET", "/", nil)
+	// Create the user logged in session
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+
+	if !a.IsCurrentUser(req, "dadams") {
+		t.Error("Current user should be dadams with valid cookie")
+	}
+
+	if a.IsCurrentUser(req, "nadams") {
+		t.Error("Current user should not be nadams with valid cookie")
+	}
+
+	if a.IsCurrentUser(req, "") {
+		t.Error("Current user should automatically be false if username is empty")
+	}
+
+	a.sesHandler.DestroySession(ses)
+	if a.IsCurrentUser(req, "dadams") {
+		t.Error("Current user should not be dadams with destroyed cookie")
+	}
+}
+
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	return fmt.Errorf("Redirected to %v", req.URL)
 }

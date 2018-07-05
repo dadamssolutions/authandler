@@ -13,6 +13,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func isHTTPS(r *http.Request) bool {
+	return r.TLS != nil && r.TLS.HandshakeComplete
+}
+
 // HTTPAuth is a general handler that authenticates a user for http requests.
 type HTTPAuth struct {
 	db                       *sql.DB
@@ -52,7 +56,7 @@ func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSession
 // HandleFuncHTTPSRedirect is like http.HandleFunc except it is verified the request was via https protocol.
 func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if isHTTPS(r) {
+		if !isHTTPS(r) {
 			httpsURL := "https://" + r.Host + r.RequestURI
 			log.Printf("Non-HTTPS request redirected to %v\n", httpsURL)
 			http.Redirect(w, r, httpsURL, http.StatusTemporaryRedirect)
@@ -77,8 +81,18 @@ func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Reques
 	})
 }
 
-func isHTTPS(r *http.Request) bool {
-	return r.TLS != nil && r.TLS.HandshakeComplete
+// CurrentUser returns the username of the current user
+func (a *HTTPAuth) CurrentUser(r *http.Request) string {
+	ses, err := a.sesHandler.ParseSessionFromRequest(r)
+	if err != nil || ses == nil {
+		return ""
+	}
+	return ses.Username()
+}
+
+// IsCurrentUser returns true if the username corresponds to the user logged in with a cookie in the request.
+func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
+	return username != "" && a.CurrentUser(r) == username
 }
 
 func (a *HTTPAuth) userIsAuthenticated(r *http.Request) (*session.Session, error) {
