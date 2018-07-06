@@ -1,11 +1,15 @@
 package httpauth
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,12 +134,308 @@ func TestIsCurrentUser(t *testing.T) {
 	}
 }
 
+func TestGetUserPasswordHash(t *testing.T) {
+	passHash, err := a.GenerateHashFromPassword([]byte(strings.Repeat("d", 64)))
+	tx, _ := a.db.Begin()
+	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
+	tx.Commit()
+	b, err := a.getUserPasswordHash("nadams")
+	if b != nil || err == nil {
+		t.Error("User not in database returned a valid password hash")
+	}
+
+	b, err = a.getUserPasswordHash("dadams")
+	if b == nil || err != nil || !bytes.Equal(b, passHash) {
+		t.Error("User in database returned an invalid password hash")
+	}
+	tx, _ = a.db.Begin()
+	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
+	tx.Commit()
+}
+
+func TestLogInUser(t *testing.T) {
+	pass := strings.Repeat("d", 64)
+	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
+	tx, _ := a.db.Begin()
+	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
+	tx.Commit()
+
+	ses := a.logUserIn("nadams", pass, false)
+	if ses != nil {
+		t.Error("User not in database logged in anyway")
+	}
+
+	ses = a.logUserIn("dadams", pass[:28], false)
+	if ses != nil {
+		t.Error("User in database not logged in with incorrect password")
+	}
+
+	ses = a.logUserIn("dadams", pass, false)
+	if ses == nil || !ses.IsValid() || ses.IsPersistant() {
+		t.Error("User in database not logged in correctly with session only cookie")
+	}
+
+	ses = a.logUserIn("dadams", pass, true)
+	if ses == nil || !ses.IsValid() || !ses.IsPersistant() {
+		t.Error("User in database not logged in correctly with persistant cookie")
+	}
+	tx, _ = a.db.Begin()
+	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
+	tx.Commit()
+}
+
+func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
+	addUserToDatabase()
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+
+	// No cookie present so should just redirect
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println(err)
+		t.Error("Request redirected in error")
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Error("Login GET request with no user logged in should be normal")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestUserLogInHandlerLoggingIn(t *testing.T) {
+	addUserToDatabase()
+	num = 0
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "dadams")
+	form.Set("password", strings.Repeat("d", 64))
+	form.Set("remember", "false")
+
+	// POST request should log user in
+	resp, err := client.PostForm(ts.URL, form)
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+		t.Error("Should be redirected after a successful login")
+	}
+	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if ses == nil || ses.IsPersistant() || ses.Username() != "dadams" {
+		t.Error("The cookie on a login response is not valid")
+	}
+
+	// Now user should be redirected when visiting login page
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	req.AddCookie(ses.SessionCookie())
+	resp, err = client.Do(req)
+	if err == nil {
+		t.Error("Request should be redirected when user is logged in")
+	}
+	if resp.StatusCode != http.StatusFound {
+		t.Error("Login GET request with user logged in should redirect")
+	}
+
+	// Log user out
+	ses, _ = a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	cookie := ses.SessionCookie()
+	a.sesHandler.DestroySession(ses)
+
+	// Now user should be asked to login, even with expired session cookie attached
+	req, _ = http.NewRequest("GET", ts.URL, nil)
+	req.AddCookie(cookie)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Error("Request redirected in error")
+	}
+	if resp.StatusCode != http.StatusOK || num != 1 {
+		t.Error("Login GET request with no user logged in should not redirect")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestUserLogInHandlerBadInfo(t *testing.T) {
+	addUserToDatabase()
+	num = 0
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "dadams")
+	form.Set("password", strings.Repeat("e", 64))
+	form.Set("remember", "false")
+
+	// POST request should not log user in
+	resp, err := client.PostForm(ts.URL, form)
+	if err != nil || len(resp.Cookies()) != 0 || num != 10 {
+		t.Error("Should not be redirected after an unsuccessful login")
+	}
+
+	form.Set("username", "nadams")
+	// POST request should not log user in
+	resp, err = client.PostForm(ts.URL, form)
+	if err != nil || len(resp.Cookies()) != 0 || num != 110 {
+		t.Error("Should not be redirected after an unsuccessful login")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestUserLogInHandlerPersistant(t *testing.T) {
+	addUserToDatabase()
+	num = 0
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "dadams")
+	form.Set("password", strings.Repeat("d", 64))
+	form.Set("remember", "true")
+
+	// POST request should log user in
+	resp, err := client.PostForm(ts.URL, form)
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+		t.Error("Should be redirected after a successful login")
+	}
+
+	ses, err := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if err != nil || !ses.IsPersistant() {
+		t.Error("Session created should be persistant with 'Remember me'")
+	}
+
+	cookie := ses.SessionCookie()
+	a.sesHandler.DestroySession(ses)
+
+	// Now user should be asked to login, even with expired session cookie attached
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	req.AddCookie(cookie)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Error("Request redirected in error")
+	}
+	if resp.StatusCode != http.StatusOK || num != 1 {
+		t.Error("Login GET request with no user logged in should not redirect")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestUserLogInHandlerBadPersistant(t *testing.T) {
+	addUserToDatabase()
+	num = 0
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "dadams")
+	form.Set("password", strings.Repeat("d", 64))
+	form.Set("remember", "yes")
+
+	// POST request should log user in
+	resp, err := client.PostForm(ts.URL, form)
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+		t.Error("Should be redirected after a successful login")
+	}
+
+	ses, err := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if err != nil || ses.IsPersistant() {
+		t.Error("Session created should not be persistant with bad remember value")
+	}
+
+	// Log the user out
+	a.sesHandler.DestroySession(ses)
+
+	removeUserFromDatabase()
+}
+
+func TestUserLogOutHandler(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LogoutHandler("/")))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+
+	// No cookie present so should just redirect
+	resp, err := client.Do(req)
+	if err == nil {
+		t.Error("Request not redirected")
+	}
+	if resp.StatusCode != http.StatusFound {
+		t.Error("Logout with no user logged in should just redirect to \"/\"")
+	}
+
+	// Cookie present. User should be logged out and session destroyed.
+	req.AddCookie(ses.SessionCookie())
+	resp, err = client.Do(req)
+	if err == nil {
+		t.Error("Request not redirected")
+	}
+	sesTest, err := a.sesHandler.UpdateSessionIfValid(ses)
+	if resp.StatusCode != http.StatusFound || sesTest != nil || err == nil {
+		t.Error("User not logged out properly")
+	}
+
+	// Cookie present, but already destroyed. User should be redirected
+	resp, err = client.Do(req)
+	if err == nil {
+		t.Error("Request not redirected")
+	}
+	sesTest, err = a.sesHandler.UpdateSessionIfValid(ses)
+	if resp.StatusCode != http.StatusFound || sesTest != nil || err == nil {
+		t.Error("User not logged out properly")
+	}
+}
+
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	return fmt.Errorf("Redirected to %v", req.URL)
 }
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
 	num++
+}
+
+func testLogInHandler(w http.ResponseWriter, r *http.Request, err error) {
+	num++
+	if err != nil {
+		num *= 10
+	}
+}
+
+func addUserToDatabase() {
+	// Add user to the database for testing
+	pass := strings.Repeat("d", 64)
+	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
+	tx, _ := a.db.Begin()
+	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
+	tx.Commit()
+}
+
+func removeUserFromDatabase() {
+	// Remove user from database
+	tx, _ := a.db.Begin()
+	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
+	tx.Commit()
 }
 
 func TestMain(m *testing.M) {
