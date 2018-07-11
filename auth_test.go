@@ -160,22 +160,27 @@ func TestLogInUser(t *testing.T) {
 	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
 	tx.Commit()
 
-	ses := a.logUserIn("nadams", pass, false)
+	csrfToken := a.csrfHandler.GenerateNewToken()
+
+	ses := a.logUserIn("nadams", pass, csrfToken, false)
 	if ses != nil {
 		t.Error("User not in database logged in anyway")
 	}
 
-	ses = a.logUserIn("dadams", pass[:28], false)
+	csrfToken = a.csrfHandler.GenerateNewToken()
+	ses = a.logUserIn("dadams", pass[:28], csrfToken, false)
 	if ses != nil {
 		t.Error("User in database not logged in with incorrect password")
 	}
 
-	ses = a.logUserIn("dadams", pass, false)
+	csrfToken = a.csrfHandler.GenerateNewToken()
+	ses = a.logUserIn("dadams", pass, csrfToken, false)
 	if ses == nil || !ses.IsValid() || ses.IsPersistant() {
 		t.Error("User in database not logged in correctly with session only cookie")
 	}
 
-	ses = a.logUserIn("dadams", pass, true)
+	csrfToken = a.csrfHandler.GenerateNewToken()
+	ses = a.logUserIn("dadams", pass, csrfToken, true)
 	if ses == nil || !ses.IsValid() || !ses.IsPersistant() {
 		t.Error("User in database not logged in correctly with persistant cookie")
 	}
@@ -221,6 +226,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "false")
+	form.Set("csrf", a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
 	resp, err := client.PostForm(ts.URL, form)
@@ -276,6 +282,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("e", 64))
 	form.Set("remember", "false")
+	form.Set("csrf", a.csrfHandler.GenerateNewToken())
 
 	// POST request should not log user in
 	resp, err := client.PostForm(ts.URL, form)
@@ -307,6 +314,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "true")
+	form.Set("csrf", a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
 	resp, err := client.PostForm(ts.URL, form)
@@ -350,6 +358,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "yes")
+	form.Set("csrf", a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
 	resp, err := client.PostForm(ts.URL, form)
@@ -364,6 +373,30 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 
 	// Log the user out
 	a.sesHandler.DestroySession(ses)
+
+	removeUserFromDatabase()
+}
+
+func TestUserLogInHandlerNoCSRF(t *testing.T) {
+	addUserToDatabase()
+	num = 0
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "dadams")
+	form.Set("password", strings.Repeat("d", 64))
+	form.Set("remember", "yes")
+
+	// POST request should not be valid because the CSRF token is not there
+	resp, err := client.PostForm(ts.URL, form)
+	if err != nil || resp.StatusCode != http.StatusOK || num != 10 {
+		t.Error("Login attempt without CSRF token should redirect to login page")
+	}
 
 	removeUserFromDatabase()
 }
@@ -415,7 +448,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	num++
 }
 
-func testLogInHandler(w http.ResponseWriter, r *http.Request, err error) {
+func testLogInHandler(w http.ResponseWriter, r *http.Request, csrf string, err error) {
 	num++
 	if err != nil {
 		num *= 10

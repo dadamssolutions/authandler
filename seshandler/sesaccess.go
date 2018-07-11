@@ -17,23 +17,24 @@ import (
 
 const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
-	tableCreation      = "CREATE TABLE IF NOT EXISTS sessions (selector char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM sessions;"
-	dropTable          = "DROP TABLE sessions;"
-	insertSession      = "INSERT INTO sessions(selector, session_hash, user_id, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v');"
-	userSessionExists  = "SELECT count(*) FROM sessions WHERE user_id = '%v';"
-	deleteSession      = "DELETE FROM sessions WHERE selector = '%v';"
-	getSessionInfo     = "SELECT selector, session_hash, user_id, expiration, persistant FROM sessions WHERE selector = '%v';"
-	updateSession      = "UPDATE sessions SET expiration = '%v' WHERE selector = '%v';"
-	cleanUpOldSessions = "DELETE FROM sessions WHERE (NOT persistant AND created < NOW() - INTERVAL '%v SECONDS') OR (persistant AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
+	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM %[1]v;"
+	dropTable          = "DROP TABLE %v;"
+	insertSession      = "INSERT INTO %v(selector, session_hash, user_id, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v');"
+	userSessionExists  = "SELECT count(*) FROM %v WHERE user_id = '%v';"
+	deleteSession      = "DELETE FROM %v WHERE selector = '%v';"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, expiration, persistant FROM %v WHERE selector = '%v';"
+	updateSession      = "UPDATE %v SET expiration = '%v' WHERE selector = '%v';"
+	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistant AND created < NOW() - INTERVAL '%v SECONDS') OR (persistant AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
 type sesDataAccess struct {
 	*sql.DB
-	lock *sync.RWMutex
+	tableName string
+	lock      *sync.RWMutex
 }
 
-func newDataAccess(db *sql.DB, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
-	sesAccess := sesDataAccess{db, &sync.RWMutex{}}
+func newDataAccess(db *sql.DB, tableName string, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
+	sesAccess := sesDataAccess{db, tableName, &sync.RWMutex{}}
 	if sesAccess.DB == nil {
 		log.Println("Cannot connect to the database")
 		return sesAccess, badDatabaseConnectionError()
@@ -92,7 +93,7 @@ func (s sesDataAccess) createTable() error {
 		return databaseTableCreationError()
 	}
 	// Create the table we need in the database
-	_, err = tx.Exec(tableCreation)
+	_, err = tx.Exec(fmt.Sprintf(tableCreation, s.tableName))
 	if err != nil {
 		tx.Rollback()
 		return databaseTableCreationError()
@@ -102,21 +103,21 @@ func (s sesDataAccess) createTable() error {
 }
 
 func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistantSessionTimeout float64) {
-	log.Println("Waiting to clean old sessions...")
+	log.Printf("Waiting to clean old %v...\n", s.tableName)
 	for range c {
-		log.Println("Cleaning old sessions...")
+		log.Printf("Cleaning old %v....\n", s.tableName)
 		tx, err := s.Begin()
 		if err != nil {
-			log.Println("We have stopped cleaning up old sessions")
+			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
 			log.Println(err)
 			return
 		}
 		// Clean up old sessions that are not persistant and are older than maxLifetimeSessionOnly
 		// Also clean up old expired persistant sessions.
-		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, sessionTimeout, persistantSessionTimeout))
+		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, s.tableName, sessionTimeout, persistantSessionTimeout))
 		if err != nil {
 			tx.Rollback()
-			log.Println("We have stopped cleaning up old sessions")
+			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
 			log.Println(err)
 			return
 		}
@@ -124,7 +125,7 @@ func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, pe
 		for rows.Next() {
 			selectorDeleted := ""
 			rows.Scan(&selectorDeleted)
-			log.Printf("Deleted session with selector %v\n", selectorDeleted)
+			log.Printf("Deleted %v with selector %v\n", s.tableName, selectorDeleted)
 		}
 		tx.Commit()
 	}
@@ -137,7 +138,7 @@ func (s sesDataAccess) dropTable() error {
 		return databaseTableCreationError()
 	}
 	// Drop the sessions table
-	_, err = tx.Exec(dropTable)
+	_, err = tx.Exec(fmt.Sprintf(dropTable, s.tableName))
 	if err != nil {
 		tx.Rollback()
 		return databaseTableCreationError()
@@ -161,8 +162,8 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 		if err != nil {
 			return nil, err
 		}
-		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, maxLifetime)
-		queryString := fmt.Sprintf(insertSession, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
+		ses = session.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
+		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
@@ -178,7 +179,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			return nil, err
 		}
 		// We have the ids so we break and return
-		log.Printf("Session with selector %v created\n", ses.SelectorID())
+		log.Printf("%v with selector %v created\n", s.tableName, ses.SelectorID())
 		break
 	}
 	return ses, tx.Commit()
@@ -195,7 +196,7 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime 
 	if err != nil {
 		return nil, err
 	}
-	queryString := fmt.Sprintf(getSessionInfo, selectorID)
+	queryString := fmt.Sprintf(getSessionInfo, s.tableName, selectorID)
 	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &expires, &persistant)
 	if err != nil {
 		tx.Rollback()
@@ -204,9 +205,9 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime 
 	err = tx.Commit()
 	// If the session is persistant, then we set the expiration to maxLifetime
 	if persistant {
-		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, maxLifetime)
+		ses = session.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
 	} else {
-		ses = session.NewSession(selectorID, sessionID, username, sessionCookieName, 0)
+		ses = session.NewSession(selectorID, sessionID, username, SessionCookieName, 0)
 	}
 	return ses, err
 }
@@ -217,7 +218,7 @@ func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
 		return true, err
 	}
 	var count int
-	queryString := fmt.Sprintf(userSessionExists, username)
+	queryString := fmt.Sprintf(userSessionExists, s.tableName, username)
 	err = tx.QueryRow(queryString).Scan(&count)
 	if err != nil {
 		return true, err
@@ -234,10 +235,10 @@ func (s sesDataAccess) destroySession(ses *session.Session) error {
 	if err != nil {
 		return err
 	}
-	queryString := fmt.Sprintf(deleteSession, ses.SelectorID())
+	queryString := fmt.Sprintf(deleteSession, s.tableName, ses.SelectorID())
 	tx.Exec(queryString)
 	ses.Destroy()
-	log.Printf("Session with selector %v destroyed\n", ses.SelectorID())
+	log.Printf("%v with selector %v destroyed\n", s.tableName, ses.SelectorID())
 	return tx.Commit()
 }
 
@@ -247,7 +248,7 @@ func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Dura
 	if err != nil {
 		return err
 	}
-	queryString := fmt.Sprintf(updateSession, ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.SelectorID())
+	queryString := fmt.Sprintf(updateSession, s.tableName, ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.SelectorID())
 	_, err = tx.Exec(queryString)
 	if err != nil {
 		tx.Rollback()
@@ -268,7 +269,7 @@ func (s sesDataAccess) validateSession(ses *session.Session, maxLifetime time.Du
 
 	if !ses.IsValid() {
 		s.destroySession(ses)
-		log.Printf("Session %v is not valid so we destroyed it", ses.SelectorID())
+		log.Printf("%v %v is not valid so we destroyed it", s.tableName, ses.SelectorID())
 		return sessionExpiredError(ses.SelectorID())
 	}
 	return nil

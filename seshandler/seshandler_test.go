@@ -21,7 +21,7 @@ var sh *SesHandler
 
 func TestBadDatabaseConnectionError(t *testing.T) {
 	// Pass nil to get a bad database error
-	_, err := newDataAccess(nil, timeout, timeout)
+	_, err := newDataAccess(nil, "sessions", timeout, timeout)
 	if err == nil {
 		t.Error(err)
 	}
@@ -29,12 +29,12 @@ func TestBadDatabaseConnectionError(t *testing.T) {
 	// Open a bad database to test errors
 	dbt, err := sql.Open("postgres", "user=test dbname=")
 
-	_, err = newDataAccess(dbt, timeout, timeout)
+	_, err = newDataAccess(dbt, "sessions", timeout, timeout)
 	if err == nil {
 		t.Error(err)
 	}
 
-	_, err = NewSesHandlerWithDB(dbt, timeout, timeout)
+	_, err = NewSesHandlerWithDB(dbt, "sessions", timeout, timeout)
 	if err == nil {
 		t.Error(err)
 	}
@@ -60,7 +60,7 @@ func TestBadDatabaseConnection(t *testing.T) {
 }
 
 func TestNegativeTimeoutSesCreation(t *testing.T) {
-	sh1, err := NewSesHandlerWithDB(db, timeout, -timeout)
+	sh1, err := NewSesHandlerWithDB(db, "sessions", timeout, -timeout)
 	if err != nil {
 		log.Println(err)
 		t.Error("We should not have an error with negative timeout")
@@ -122,7 +122,7 @@ func TestDestroySession(t *testing.T) {
 	}
 
 	// Session is not in the database and should be destroyed
-	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", sessionCookieName, sh.maxLifetime)
+	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", SessionCookieName, sh.maxLifetime)
 	err = sh.DestroySession(sessionNotInDatabase)
 	if sessionNotInDatabase.IsValid() || err != nil {
 		log.Println(err)
@@ -137,7 +137,7 @@ func TestSessionExistsForUser(t *testing.T) {
 		t.Error("The user should have a session in the database")
 	}
 
-	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", sessionCookieName, sh.maxLifetime)
+	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", SessionCookieName, sh.maxLifetime)
 	exists, _ = sh.dataAccess.sessionExistsForUser(sessionNotInDatabase.Username())
 	if exists {
 		t.Error("The user should NOT have a session in the database")
@@ -173,7 +173,7 @@ func TestParsedSessionOfInvalidCookie(t *testing.T) {
 
 func TestSessionParsingFromCookie(t *testing.T) {
 	ses, _ := sh.CreateSession("dadams", true)
-	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", sessionCookieName, sh.maxLifetime)
+	sessionNotInDatabase := session.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "nadams", SessionCookieName, sh.maxLifetime)
 	cookie := sessionNotInDatabase.SessionCookie()
 	sesTest, err := sh.ParseSessionCookie(ses.SessionCookie())
 
@@ -252,14 +252,14 @@ func TestAttachSessionOnlyCookieToResponseWriter(t *testing.T) {
 
 func TestValidateUserInputs(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		ses := session.NewSession(sh.dataAccess.generateSelectorID(), sh.dataAccess.generateSessionID(), sh.dataAccess.generateRandomString(12), sessionCookieName, 0)
+		ses := session.NewSession(sh.dataAccess.generateSelectorID(), sh.dataAccess.generateSessionID(), sh.dataAccess.generateRandomString(12), SessionCookieName, 0)
 		if !sh.validateUserInputs(ses) {
 			t.Error("Session should have IDs and username")
 		}
 	}
 
 	for i := 0; i < 100; i++ {
-		ses := session.NewSession(sh.dataAccess.generateSelectorID(), sh.dataAccess.generateSessionID(), sh.dataAccess.generateRandomString(12)+" "+sh.dataAccess.generateRandomString(9), sessionCookieName, 0)
+		ses := session.NewSession(sh.dataAccess.generateSelectorID(), sh.dataAccess.generateSessionID(), sh.dataAccess.generateRandomString(12)+" "+sh.dataAccess.generateRandomString(9), SessionCookieName, 0)
 		if sh.validateUserInputs(ses) {
 			log.Println(ses)
 			t.Error("Session should NOT have IDs and username")
@@ -268,7 +268,7 @@ func TestValidateUserInputs(t *testing.T) {
 }
 
 func TestTimeoutOfNonPersistantCookies(t *testing.T) {
-	sh, _ := NewSesHandlerWithDB(db, 500*time.Millisecond, time.Second)
+	sh, _ := NewSesHandlerWithDB(db, "sessions", 500*time.Millisecond, time.Second)
 	ses1, _ := sh.CreateSession("dadams", true)
 	ses2, _ := sh.CreateSession("nadams", false)
 
@@ -313,7 +313,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	sh, err = NewSesHandlerWithDB(db, timeout, timeout)
+	sh, err = NewSesHandlerWithDB(db, "sessions", timeout, timeout)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dadamssolutions/authandler/csrfhandler"
 	"github.com/dadamssolutions/authandler/seshandler"
 	"github.com/dadamssolutions/authandler/seshandler/session"
 	_ "github.com/lib/pq" // Database driver
@@ -40,9 +41,12 @@ func isHTTPS(r *http.Request) bool {
 }
 
 // HTTPAuth is a general handler that authenticates a user for http requests.
+// It also handles csrf token generation and validation.
 type HTTPAuth struct {
 	db                       *sql.DB
 	sesHandler               *seshandler.SesHandler
+	csrfHandler              *csrfhandler.CSRFHandler
+	csrfUsername             string
 	UsersTableName           string
 	LoginURL                 string
 	LogoutURL                string
@@ -58,16 +62,21 @@ func NewHTTPAuth(driverName, dbURL, tableName string, sessionTimeout, persistant
 		// Database connections failed.
 		return nil, errors.New("Database connection failed")
 	}
-	ses, err := seshandler.NewSesHandlerWithDB(db, sessionTimeout, persistantSessionTimeout)
+	ses, err := seshandler.NewSesHandlerWithDB(db, "sessions", sessionTimeout, persistantSessionTimeout)
 	if err != nil {
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")
+	}
+	csrf := csrfhandler.NewCSRFHandler(db, sessionTimeout)
+	if csrf == nil {
+		// CSRF handler could not be created, likely a database problem.
+		return nil, errors.New("CSRF handler could not be created")
 	}
 	err = createUsersTable(db, tableName)
 	if err != nil {
 		return nil, errors.New("Users database table could not be created")
 	}
-	return &HTTPAuth{db: db, sesHandler: ses, UsersTableName: tableName, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout"}, nil
+	return &HTTPAuth{db: db, sesHandler: ses, csrfHandler: csrf, UsersTableName: tableName, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout", csrfUsername: "csrf"}, nil
 }
 
 // DefaultHTTPAuth uses the standard bcyrpt functions for
@@ -110,7 +119,9 @@ func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Reques
 
 // LoginHandler handles the login GET and POST requests
 // If it is determined that the login page should be shown, then the handler function is called.
-func (a *HTTPAuth) LoginHandler(handler func(http.ResponseWriter, *http.Request, error), redirectOnSuccess string) func(http.ResponseWriter, *http.Request) {
+// The string parameter of the handler represents the csrf token that should be used with the login request.
+// The error parament of the handler represents any errors that occurred when logging the user in.
+func (a *HTTPAuth) LoginHandler(handler func(http.ResponseWriter, *http.Request, string, error), redirectOnSuccess string) func(http.ResponseWriter, *http.Request) {
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
 		ses, err := a.userIsAuthenticated(r)
 		if err == nil {
@@ -123,8 +134,9 @@ func (a *HTTPAuth) LoginHandler(handler func(http.ResponseWriter, *http.Request,
 		if r.Method == "POST" {
 			username, password := url.QueryEscape(r.PostFormValue("username")), url.QueryEscape(r.PostFormValue("password"))
 			remember := url.QueryEscape(r.PostFormValue("remember"))
+			csrf := r.PostFormValue(a.csrfUsername)
 			rememberMe, _ := strconv.ParseBool(remember)
-			ses = a.logUserIn(username, password, rememberMe)
+			ses = a.logUserIn(username, password, csrf, rememberMe)
 			if ses != nil {
 				log.Printf("User %v logged in successfully. Redirecting to %v\n", username, redirectOnSuccess)
 				a.sesHandler.AttachCookie(w, ses)
@@ -135,7 +147,11 @@ func (a *HTTPAuth) LoginHandler(handler func(http.ResponseWriter, *http.Request,
 			err = errors.New("Login failed")
 		}
 		log.Printf("User requesting login page\n")
-		handler(w, r, err)
+		csrfToken := a.csrfHandler.GenerateNewToken()
+		if csrfToken == "" {
+			log.Println("Error generating the csrf token for the login page request.")
+		}
+		handler(w, r, csrfToken, err)
 	})
 }
 
@@ -171,12 +187,14 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 	return username != "" && a.CurrentUser(r) == username
 }
 
-func (a *HTTPAuth) logUserIn(username, password string, persistant bool) *session.Session {
-	hashedPassword, err := a.getUserPasswordHash(username)
-	if err == nil && a.CompareHashAndPassword(hashedPassword, []byte(password)) == nil {
-		ses, err := a.sesHandler.CreateSession(username, persistant)
-		if err == nil {
-			return ses
+func (a *HTTPAuth) logUserIn(username, password, csrf string, persistant bool) *session.Session {
+	if a.csrfHandler.ValidToken(csrf) {
+		hashedPassword, err := a.getUserPasswordHash(username)
+		if err == nil && a.CompareHashAndPassword(hashedPassword, []byte(password)) == nil {
+			ses, err := a.sesHandler.CreateSession(username, persistant)
+			if err == nil {
+				return ses
+			}
 		}
 	}
 	return nil

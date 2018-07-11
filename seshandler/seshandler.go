@@ -30,7 +30,7 @@ import (
 
 // These are made constants because the database should be cleared and updated if they change.
 const (
-	sessionCookieName = "sessionID"
+	SessionCookieName = "sessionID"
 	selectorIDLength  = 16
 	sessionIDLength   = 64
 )
@@ -45,8 +45,8 @@ type SesHandler struct {
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If either timeout <= 0, then it is set to 0 (session only cookies).
-func NewSesHandlerWithDB(db *sql.DB, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*SesHandler, error) {
-	da, err := newDataAccess(db, sessionTimeout, persistantSessionTimeout)
+func NewSesHandlerWithDB(db *sql.DB, tableName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*SesHandler, error) {
+	da, err := newDataAccess(db, tableName, sessionTimeout, persistantSessionTimeout)
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -133,7 +133,7 @@ func (sh *SesHandler) UpdateSessionIfValid(ses *session.Session) (*session.Sessi
 // ParseSessionFromRequest takes a request, determines if there is a valid session cookie,
 // and returns the session, if it exists.
 func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session, error) {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := r.Cookie(SessionCookieName)
 	// No session cookie available
 	if err != nil {
 		log.Println(err)
@@ -152,8 +152,8 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 	// Break the cookie into its parts.
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
-	if err != nil || cookie.Name != sessionCookieName || len(cookieStrings) != 3 {
-		log.Println("Not a valid session cookie")
+	if err != nil || cookie.Name != SessionCookieName || len(cookieStrings) != 3 {
+		log.Printf("Not a valid %v cookie\n", sh.dataAccess.tableName)
 		return nil, invalidSessionCookie()
 	}
 
@@ -180,7 +180,7 @@ func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) 
 	selectorID := ses.SelectorID()
 	ses, err = sh.UpdateSessionIfValid(ses)
 	if err != nil {
-		log.Println("Invalid session with ID " + selectorID + ": no cookie returned")
+		log.Printf("Invalid %v with ID %v: no cookie returned", sh.dataAccess.tableName, selectorID)
 		return ses, invalidSessionError(selectorID)
 	}
 	// Attach the cookie to the response writer
@@ -195,7 +195,7 @@ func (sh *SesHandler) validateUserInputs(ses *session.Session) bool {
 	s2 := url.QueryEscape(ses.Username())
 	s3 := url.QueryEscape(ses.SessionID())
 	if s1 != ses.SelectorID() || s2 != ses.Username() || s3 != ses.SessionID() {
-		log.Print("The session has invalid pieces. The user must have altered them: ")
+		log.Printf("The %v has invalid pieces. The user must have altered them: ", sh.dataAccess.tableName)
 		log.Println(ses.SelectorID())
 		return false
 	}
