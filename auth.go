@@ -90,7 +90,7 @@ func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSession
 }
 
 // HandleFuncHTTPSRedirect is like http.HandleFunc except it is verified the request was via https protocol.
-func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler HTTPHandler) HTTPHandler {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !isHTTPS(r) {
 			httpsURL := "https://" + r.Host + r.RequestURI
@@ -103,7 +103,7 @@ func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler func(http.ResponseWriter, *ht
 }
 
 // HandleFuncAuth is like http.HandleFunc except it is verified the user is logged in.
-func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
+func (a *HTTPAuth) HandleFuncAuth(handler HTTPHandler) HTTPHandler {
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
 		ses, err := a.userIsAuthenticated(r)
 		if err != nil {
@@ -121,7 +121,7 @@ func (a *HTTPAuth) HandleFuncAuth(handler func(http.ResponseWriter, *http.Reques
 // If it is determined that the login page should be shown, then the handler function is called.
 // The string parameter of the handler represents the csrf token that should be used with the login request.
 // The error parament of the handler represents any errors that occurred when logging the user in.
-func (a *HTTPAuth) LoginHandler(handler func(http.ResponseWriter, *http.Request, string, error), redirectOnSuccess string) func(http.ResponseWriter, *http.Request) {
+func (a *HTTPAuth) LoginHandler(handler CSRFHandler, redirectOnSuccess string) HTTPHandler {
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
 		ses, err := a.userIsAuthenticated(r)
 		if err == nil {
@@ -157,7 +157,7 @@ func (a *HTTPAuth) LoginHandler(handler func(http.ResponseWriter, *http.Request,
 
 // LogoutHandler handles the logout GET and POST requests
 // If it is determined that the logout page should be shown, then the handler function is called.
-func (a *HTTPAuth) LogoutHandler(redirectOnSuccess string) func(http.ResponseWriter, *http.Request) {
+func (a *HTTPAuth) LogoutHandler(redirectOnSuccess string) HTTPHandler {
 	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
 		ses, err := a.userIsAuthenticated(r)
 		if err != nil {
