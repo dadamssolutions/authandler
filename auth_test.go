@@ -153,46 +153,10 @@ func TestGetUserPasswordHash(t *testing.T) {
 	tx.Commit()
 }
 
-func TestLogInUser(t *testing.T) {
-	pass := strings.Repeat("d", 64)
-	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
-	tx, _ := a.db.Begin()
-	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
-	tx.Commit()
-
-	csrfToken := a.csrfHandler.GenerateNewToken()
-
-	ses := a.logUserIn("nadams", pass, csrfToken, false)
-	if ses != nil {
-		t.Error("User not in database logged in anyway")
-	}
-
-	csrfToken = a.csrfHandler.GenerateNewToken()
-	ses = a.logUserIn("dadams", pass[:28], csrfToken, false)
-	if ses != nil {
-		t.Error("User in database not logged in with incorrect password")
-	}
-
-	csrfToken = a.csrfHandler.GenerateNewToken()
-	ses = a.logUserIn("dadams", pass, csrfToken, false)
-	if ses == nil || !ses.IsValid() || ses.IsPersistant() {
-		t.Error("User in database not logged in correctly with session only cookie")
-	}
-
-	csrfToken = a.csrfHandler.GenerateNewToken()
-	ses = a.logUserIn("dadams", pass, csrfToken, true)
-	if ses == nil || !ses.IsValid() || !ses.IsPersistant() {
-		t.Error("User in database not logged in correctly with persistant cookie")
-	}
-	tx, _ = a.db.Begin()
-	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
-	tx.Commit()
-}
-
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 	addUserToDatabase()
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -216,7 +180,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -231,6 +195,9 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	// POST request should log user in
 	resp, err := client.PostForm(ts.URL, form)
 	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+		log.Println(err)
+		log.Println(len(resp.Cookies()))
+		log.Println(resp.StatusCode)
 		t.Error("Should be redirected after a successful login")
 	}
 	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
@@ -262,6 +229,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 		t.Error("Request redirected in error")
 	}
 	if resp.StatusCode != http.StatusOK || num != 1 {
+		log.Println(resp.StatusCode, num)
 		t.Error("Login GET request with no user logged in should not redirect")
 	}
 
@@ -272,7 +240,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -284,17 +252,18 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	form.Set("remember", "false")
 	form.Set("csrf", a.csrfHandler.GenerateNewToken())
 
-	// POST request should not log user in
-	resp, err := client.PostForm(ts.URL, form)
-	if err != nil || len(resp.Cookies()) != 0 || num != 10 {
-		t.Error("Should not be redirected after an unsuccessful login")
+	// POST request should not log user in with wrong password
+	resp, _ := client.PostForm(ts.URL, form)
+	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
+		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
 	form.Set("username", "nadams")
+	form.Set("csrf", a.csrfHandler.GenerateNewToken())
 	// POST request should not log user in
-	resp, err = client.PostForm(ts.URL, form)
-	if err != nil || len(resp.Cookies()) != 0 || num != 110 {
-		t.Error("Should not be redirected after an unsuccessful login")
+	resp, _ = client.PostForm(ts.URL, form)
+	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
+		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
 	removeUserFromDatabase()
@@ -304,7 +273,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -348,7 +317,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -381,7 +350,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler, "/")))
+	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -393,8 +362,10 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	form.Set("remember", "yes")
 
 	// POST request should not be valid because the CSRF token is not there
-	resp, err := client.PostForm(ts.URL, form)
-	if err != nil || resp.StatusCode != http.StatusOK || num != 10 {
+	resp, _ := client.PostForm(ts.URL, form)
+	if resp.StatusCode != http.StatusOK || num != 10 {
+		log.Println(resp.StatusCode)
+		log.Println(num)
 		t.Error("Login attempt without CSRF token should redirect to login page")
 	}
 
@@ -450,6 +421,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 func testLogInHandler(w http.ResponseWriter, r *http.Request, csrf string, err error) {
 	num++
+	log.Println(err)
 	if err != nil {
 		num *= 10
 	}
