@@ -139,6 +139,12 @@ func (a *HTTPAuth) HandleFuncCSRF(getHandler CSRFHandler, postHandler http.Handl
 	})
 }
 
+// HandleFuncCSRFWithAuth is a simple helper that combines the functionality of Auth
+// and CSRF checks, in that order
+func (a *HTTPAuth) HandleFuncCSRFWithAuth(getHandler CSRFHandler, postHandler http.HandlerFunc) http.HandlerFunc {
+	return a.HandleFuncAuth(a.HandleFuncCSRF(getHandler, postHandler))
+}
+
 // LoginHandler handles the login GET and POST requests
 // If it is determined that the login page should be shown, then the handler function is called.
 // The string parameter of the handler represents the csrf token that should be used with the login request.
