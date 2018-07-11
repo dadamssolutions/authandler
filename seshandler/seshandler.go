@@ -103,7 +103,7 @@ func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 func (sh *SesHandler) UpdateSessionIfValid(ses *session.Session) (*session.Session, error) {
 	if ok := sh.isValidSession(ses); !ok {
 		log.Println("Session with selector ID " + ses.SelectorID() + " is not a valid session, so we can't update it")
-		return nil, invalidSessionError(ses.SelectorID())
+		return nil, invalidSessionError(ses.SelectorID(), sh.dataAccess.tableName)
 	}
 	// If the session is persistant, then we reset the expiration from time.Now
 	if ses.IsPersistant() {
@@ -137,7 +137,7 @@ func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session
 	// No session cookie available
 	if err != nil {
 		log.Println(err)
-		return nil, noSessionCookieFoundInRequest()
+		return nil, noSessionCookieFoundInRequest(sh.dataAccess.tableName)
 	}
 	session, err := sh.ParseSessionCookie(cookie)
 	if err != nil {
@@ -154,7 +154,7 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 	cookieStrings := strings.Split(unescapedCookie, "|")
 	if err != nil || cookie.Name != SessionCookieName || len(cookieStrings) != 3 {
 		log.Printf("Not a valid %v cookie\n", sh.dataAccess.tableName)
-		return nil, invalidSessionCookie()
+		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 
 	selectorID, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
@@ -162,12 +162,12 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 	dbSession, err := sh.dataAccess.getSessionInfo(selectorID, sessionID, sh.maxLifetime)
 	if err != nil {
 		log.Printf("Database returned an error for selector ID %v\n", selectorID)
-		return nil, invalidSessionCookie()
+		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 	// Make sure the session is valid before returning it
 	if !sh.isValidSession(dbSession) || dbSession.Username() != username {
 		sh.DestroySession(dbSession)
-		return nil, invalidSessionCookie()
+		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 	return dbSession, nil
 }
@@ -181,7 +181,7 @@ func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) 
 	ses, err = sh.UpdateSessionIfValid(ses)
 	if err != nil {
 		log.Printf("Invalid %v with ID %v: no cookie returned", sh.dataAccess.tableName, selectorID)
-		return ses, invalidSessionError(selectorID)
+		return ses, invalidSessionError(selectorID, sh.dataAccess.tableName)
 	}
 	// Attach the cookie to the response writer
 	http.SetCookie(w, ses.SessionCookie())

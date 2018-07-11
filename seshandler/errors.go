@@ -1,30 +1,33 @@
 package seshandler
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 func badDatabaseConnectionError() error {
 	return errors.New("The database connection is not valid")
 }
-func databaseTableCreationError() error {
-	return errors.New("Cannot create sessions table in the database")
+func databaseTableCreationError(table string) error {
+	return fmt.Errorf("Cannot create %v table in the database", table)
 }
 
-func invalidSessionCookie() error {
-	return errors.New("Cookie does not represent a valid session cookie")
+func invalidSessionCookie(table string) error {
+	return fmt.Errorf("Cookie does not represent a valid %v cookie", table)
 }
 
-func invalidSessionError(selectorID string) error {
-	return errors.New("Session with selectorID " + selectorID + " is not valid")
+func invalidSessionError(selectorID, table string) error {
+	return fmt.Errorf("%v with selectorID "+selectorID+" is not valid", table)
 }
 
-func sessionExpiredError(selectorID string) error {
-	return errors.New("The session ID " + selectorID + " is expired")
+func sessionExpiredError(selectorID, table string) error {
+	return fmt.Errorf("The %v ID %v is expired", table, selectorID)
 }
 
-func sessionNotInDatabaseError(selectorID string) error {
-	return errors.New("Session with selector ID " + selectorID + " was not found in the database")
+func sessionNotInDatabaseError(selectorID, table string) error {
+	return fmt.Errorf("%v with selector ID %v was not found in the database", table, selectorID)
 }
 
-func noSessionCookieFoundInRequest() error {
-	return errors.New("No session cookie was found in request")
+func noSessionCookieFoundInRequest(table string) error {
+	return fmt.Errorf("No %v cookie was found in request", table)
 }

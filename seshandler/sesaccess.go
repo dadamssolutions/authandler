@@ -90,13 +90,13 @@ func (s sesDataAccess) generateSessionID() string {
 func (s sesDataAccess) createTable() error {
 	tx, err := s.Begin()
 	if err != nil {
-		return databaseTableCreationError()
+		return databaseTableCreationError(s.tableName)
 	}
 	// Create the table we need in the database
 	_, err = tx.Exec(fmt.Sprintf(tableCreation, s.tableName))
 	if err != nil {
 		tx.Rollback()
-		return databaseTableCreationError()
+		return databaseTableCreationError(s.tableName)
 	}
 	log.Println("Sessions table created")
 	return tx.Commit()
@@ -135,13 +135,13 @@ func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, pe
 func (s sesDataAccess) dropTable() error {
 	tx, err := s.Begin()
 	if err != nil {
-		return databaseTableCreationError()
+		return databaseTableCreationError(s.tableName)
 	}
 	// Drop the sessions table
 	_, err = tx.Exec(fmt.Sprintf(dropTable, s.tableName))
 	if err != nil {
 		tx.Rollback()
-		return databaseTableCreationError()
+		return databaseTableCreationError(s.tableName)
 	}
 	return tx.Commit()
 }
@@ -264,13 +264,13 @@ func (s sesDataAccess) validateSession(ses *session.Session, maxLifetime time.Du
 	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), maxLifetime)
 	if err != nil || !ses.Equals(dbSession, s.hashString) {
 		s.destroySession(ses)
-		return sessionNotInDatabaseError(ses.SelectorID())
+		return sessionNotInDatabaseError(ses.SelectorID(), s.tableName)
 	}
 
 	if !ses.IsValid() {
 		s.destroySession(ses)
 		log.Printf("%v %v is not valid so we destroyed it", s.tableName, ses.SelectorID())
-		return sessionExpiredError(ses.SelectorID())
+		return sessionExpiredError(ses.SelectorID(), s.tableName)
 	}
 	return nil
 }
