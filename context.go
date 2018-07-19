@@ -27,14 +27,14 @@ func ErrorFromContext(ctx context.Context) error {
 }
 
 // NewUserContext adds a User to the context.
-func NewUserContext(ctx context.Context, user User) context.Context {
+func NewUserContext(ctx context.Context, user *User) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }
 
 // UserFromContext looks for a User in the context.
 // If there is no User found, then the return value will be nil.
-func UserFromContext(ctx context.Context) User {
-	user, _ := ctx.Value(userKey).(User)
+func UserFromContext(ctx context.Context) *User {
+	user, _ := ctx.Value(userKey).(*User)
 	return user
 }
 

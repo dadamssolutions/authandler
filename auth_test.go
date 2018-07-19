@@ -54,6 +54,7 @@ func removeUserFromDatabase() {
 	// Remove user from database
 	tx, _ := a.db.Begin()
 	tx.Exec("DELETE FROM sessions WHERE user_id = 'dadams';")
+	tx.Exec("DELETE FROM csrfs WHERE user_id = 'dadams';")
 	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
 	tx.Commit()
 }
@@ -97,9 +98,11 @@ func TestUserLoggedInHandler(t *testing.T) {
 }
 
 func TestCurrentUserBadCookie(t *testing.T) {
+	addUserToDatabase()
+
 	req, _ := http.NewRequest("GET", "/", nil)
 
-	if a.CurrentUser(req) != "" {
+	if a.CurrentUser(req) != nil {
 		t.Error("No cookie in request should return empty string")
 	}
 
@@ -108,23 +111,31 @@ func TestCurrentUserBadCookie(t *testing.T) {
 	req.AddCookie(ses.SessionCookie())
 	a.sesHandler.DestroySession(ses)
 
-	if a.CurrentUser(req) != "" {
+	if a.CurrentUser(req) != nil {
 		t.Error("Destroyed cookie in request should return empty string")
 	}
+
+	removeUserFromDatabase()
 }
 
 func TestCurrentUserGoodCookie(t *testing.T) {
+	addUserToDatabase()
+
 	req, _ := http.NewRequest("GET", "/", nil)
 	// Create the user logged in session
 	ses, _ := a.sesHandler.CreateSession("dadams", true)
 	req.AddCookie(ses.SessionCookie())
 
-	if a.CurrentUser(req) != "dadams" {
-		t.Error("Valid cookie in request should return correct username")
+	if a.CurrentUser(req).Username != "dadams" {
+		t.Error("Valid cookie in request should return correct user")
 	}
+
+	removeUserFromDatabase()
 }
 
 func TestIsCurrentUser(t *testing.T) {
+	addUserToDatabase()
+
 	req, _ := http.NewRequest("GET", "/", nil)
 	// Create the user logged in session
 	ses, _ := a.sesHandler.CreateSession("dadams", true)
@@ -146,6 +157,8 @@ func TestIsCurrentUser(t *testing.T) {
 	if a.IsCurrentUser(req, "dadams") {
 		t.Error("Current user should not be dadams with destroyed cookie")
 	}
+
+	removeUserFromDatabase()
 }
 
 func TestGetUserPasswordHash(t *testing.T) {

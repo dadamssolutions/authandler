@@ -19,12 +19,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar, lname varchar, email varchar NOT NULL UNIQUE, valid_code char(64), pass_hash char(80), PRIMARY KEY (username));"
-	getUserPasswordHash     = "SELECT pass_hash FROM %v WHERE username = '%v';"
-	deleteUsersTestTableSQL = "DROP TABLE %v;"
-)
-
 func createUsersTable(db *sql.DB, tableName string) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -181,21 +175,26 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 }
 
 // CurrentUser returns the username of the current user
-func (a *HTTPAuth) CurrentUser(r *http.Request) string {
+func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
+	user := UserFromContext(r.Context())
+	if user != nil {
+		return user
+	}
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
 	if err != nil || ses == nil {
-		return ""
+		return nil
 	}
-	return ses.Username()
+	log.Println(getUserFromDB(a.db, a.UsersTableName, ses.Username()))
+	return getUserFromDB(a.db, a.UsersTableName, ses.Username())
 }
 
 // IsCurrentUser returns true if the username corresponds to the user logged in with a cookie in the request.
 func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
-	return username != "" && a.CurrentUser(r) == username
+	currentUser := a.CurrentUser(r)
+	return username != "" && currentUser != nil && currentUser.Username == username
 }
 
 func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
-	// TODO: Check that redirect is a GET request. If it is not, we need to do something different here.
 	var ses *session.Session
 	// If the user is authenticated already, then we just redirect
 	if a.userIsAuthenticated(w, r) {
@@ -267,5 +266,7 @@ func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) b
 		return false
 	}
 	a.sesHandler.AttachCookie(w, ses)
+	user := getUserFromDB(a.db, a.UsersTableName, ses.Username())
+	*r = *r.WithContext(NewUserContext(r.Context(), user))
 	return true
 }
