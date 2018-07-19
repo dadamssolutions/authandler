@@ -133,6 +133,32 @@ func TestCurrentUserGoodCookie(t *testing.T) {
 	removeUserFromDatabase()
 }
 
+func TestCurrentUserFromContext(t *testing.T) {
+	addUserToDatabase()
+
+	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", Email: "test@gmail.com"}
+	ses, _ := a.sesHandler.CreateSession(user.Username, false)
+	req, _ := http.NewRequest("GET", "/", nil)
+	req = req.WithContext(NewUserContext(req.Context(), user))
+
+	userFromContext := a.CurrentUser(req)
+
+	// If the session has not been added, then we should get no current user.
+	if userFromContext != nil {
+		t.Error("If no cookie is included, then no user should be found")
+	}
+
+	// Now we attach the cookie and the request should have a user.
+	req.AddCookie(ses.SessionCookie())
+	userFromContext = a.CurrentUser(req)
+
+	if userFromContext == nil || userFromContext.Username != "dadams" {
+		t.Error("Valid cookie in request should return correct user")
+	}
+
+	removeUserFromDatabase()
+}
+
 func TestIsCurrentUser(t *testing.T) {
 	addUserToDatabase()
 

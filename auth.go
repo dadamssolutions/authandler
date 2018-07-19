@@ -176,16 +176,25 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 
 // CurrentUser returns the username of the current user
 func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
+	// If there is a current user, then we must have a cooke for them.
+	ses, err := a.sesHandler.ParseSessionFromRequest(r)
 	user := UserFromContext(r.Context())
+	if err != nil {
+		if user != nil {
+			*r = *r.WithContext(NewUserContext(r.Context(), nil))
+		}
+		return nil
+	}
+
 	if user != nil {
 		return user
 	}
-	ses, err := a.sesHandler.ParseSessionFromRequest(r)
-	if err != nil || ses == nil {
-		return nil
+	// If there is a cookie, then for simplicity, we add the user to the Request's context.
+	user = getUserFromDB(a.db, a.UsersTableName, ses.Username())
+	if user != nil {
+		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
-	log.Println(getUserFromDB(a.db, a.UsersTableName, ses.Username()))
-	return getUserFromDB(a.db, a.UsersTableName, ses.Username())
+	return user
 }
 
 // IsCurrentUser returns true if the username corresponds to the user logged in with a cookie in the request.
