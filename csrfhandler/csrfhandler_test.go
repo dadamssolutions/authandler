@@ -3,6 +3,7 @@ package csrfhandler
 import (
 	"database/sql"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -17,15 +18,20 @@ func TestTokenGeneration(t *testing.T) {
 	if token == "" || !strings.Contains(token, "csrf") {
 		t.Error("Could not generate a new token")
 	}
-	csrfHand.ValidToken(token)
+	// Create a request so we can validate the token which destroys it as well
+	req, _ := http.NewRequest("POST", "", nil)
+	req.Header.Set(HeaderName, token)
+	csrfHand.ValidToken(req)
 }
 
 func TestTokenValidation(t *testing.T) {
 	token := csrfHand.GenerateNewToken()
-	if !csrfHand.ValidToken(token) {
+	req, _ := http.NewRequest("POST", "", nil)
+	req.Header.Set(HeaderName, token)
+	if err := csrfHand.ValidToken(req); err != nil {
 		t.Error("Token should be valid right after it is created")
 	}
-	if csrfHand.ValidToken(token) {
+	if err := csrfHand.ValidToken(req); err == nil {
 		t.Error("Token should not be valid after it is validated")
 	}
 }

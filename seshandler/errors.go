@@ -16,8 +16,8 @@ func invalidSessionCookie(table string) error {
 	return fmt.Errorf("Cookie does not represent a valid %v cookie", table)
 }
 
-func invalidSessionError(selectorID, table string) error {
-	return fmt.Errorf("%v with selectorID "+selectorID+" is not valid", table)
+func invalidSessionError(table string) error {
+	return fmt.Errorf("%v is not valid", table)
 }
 
 func sessionExpiredError(selectorID, table string) error {

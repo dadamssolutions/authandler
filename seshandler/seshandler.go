@@ -86,7 +86,7 @@ func (sh *SesHandler) DestroySession(ses *session.Session) error {
 // isValidSession determines if the given session is valid.
 func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 	// First we check that the inputs have not been tampered with
-	if sh.validateUserInputs(ses) {
+	if ses != nil && sh.validateUserInputs(ses) {
 		// The we check the session against the session in the database
 		if err := sh.dataAccess.validateSession(ses, sh.maxLifetime); err != nil {
 			log.Println(err)
@@ -102,8 +102,8 @@ func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 // If the session is invalid, then a non-nil error will be returned.
 func (sh *SesHandler) UpdateSessionIfValid(ses *session.Session) (*session.Session, error) {
 	if ok := sh.isValidSession(ses); !ok {
-		log.Println("Session with selector ID " + ses.SelectorID() + " is not a valid session, so we can't update it")
-		return nil, invalidSessionError(ses.SelectorID(), sh.dataAccess.tableName)
+		log.Println("We were provided an invalid session so we can't update it")
+		return nil, invalidSessionError(sh.dataAccess.tableName)
 	}
 	// If the session is persistant, then we reset the expiration from time.Now
 	if ses.IsPersistant() {
@@ -177,11 +177,14 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) (*session.Session, error) {
 	// Need to save the selector incase the call to UpdateSessionIfValid returns an error
 	var err error
-	selectorID := ses.SelectorID()
+	var selectorID string
+	if ses != nil {
+		selectorID = ses.SelectorID()
+	}
 	ses, err = sh.UpdateSessionIfValid(ses)
 	if err != nil {
 		log.Printf("Invalid %v with ID %v: no cookie returned", sh.dataAccess.tableName, selectorID)
-		return ses, invalidSessionError(selectorID, sh.dataAccess.tableName)
+		return ses, invalidSessionError(sh.dataAccess.tableName)
 	}
 	// Attach the cookie to the response writer
 	http.SetCookie(w, ses.SessionCookie())

@@ -1,4 +1,4 @@
-package httpauth
+package authandler
 
 import (
 	"database/sql"
@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dadamssolutions/adaptd"
 	"github.com/dadamssolutions/authandler/csrfhandler"
 	"github.com/dadamssolutions/authandler/seshandler"
 	"github.com/dadamssolutions/authandler/seshandler/session"
@@ -19,8 +20,9 @@ import (
 )
 
 const (
-	createUsersTableSQL = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar, lname varchar, email varchar NOT NULL UNIQUE, valid_code char(64), pass_hash char(80), PRIMARY KEY (username));"
-	getUserPasswordHash = "SELECT pass_hash FROM %v WHERE username = '%v';"
+	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar, lname varchar, email varchar NOT NULL UNIQUE, valid_code char(64), pass_hash char(80), PRIMARY KEY (username));"
+	getUserPasswordHash     = "SELECT pass_hash FROM %v WHERE username = '%v';"
+	deleteUsersTestTableSQL = "DROP TABLE %v;"
 )
 
 func createUsersTable(db *sql.DB, tableName string) error {
@@ -36,8 +38,17 @@ func createUsersTable(db *sql.DB, tableName string) error {
 	return tx.Commit()
 }
 
-func isHTTPS(r *http.Request) bool {
-	return r.TLS != nil && r.TLS.HandshakeComplete
+func deleteUsersTestTable(db *sql.DB, tableName string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil
+	}
+	_, err = tx.Exec(fmt.Sprintf(deleteUsersTestTableSQL, tableName))
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // HTTPAuth is a general handler that authenticates a user for http requests.
@@ -57,6 +68,7 @@ type HTTPAuth struct {
 
 // NewHTTPAuth takes database information and hash generation and comparative functions
 // and returns a HTTPAuth handler with those specifications.
+// Most callers should user DefaultHTTPAuth instead.
 func NewHTTPAuth(driverName, dbURL, tableName string, sessionTimeout, persistantSessionTimeout time.Duration, g func([]byte) ([]byte, error), c func([]byte, []byte) error) (*HTTPAuth, error) {
 	db, err := sql.Open(driverName, dbURL)
 	if err != nil {
@@ -90,95 +102,82 @@ func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSession
 	return NewHTTPAuth(driverName, dbURL, "users", sessionTimeout, persistantSessionTimeout, g, bcrypt.CompareHashAndPassword)
 }
 
-// HandleFuncHTTPSRedirect is like http.HandleFunc except it is verified the request was via https protocol.
-func (a *HTTPAuth) HandleFuncHTTPSRedirect(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !isHTTPS(r) {
-			httpsURL := "https://" + r.Host + r.RequestURI
-			log.Printf("Non-HTTPS request redirected to %v\n", httpsURL)
-			http.Redirect(w, r, httpsURL, http.StatusTemporaryRedirect)
-		} else {
-			handler(w, r)
+// RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
+// It automatically applies the adaptd.EnsureHTTPS adapter.
+func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		adapters := []adaptd.Adapter{
+			adaptd.EnsureHTTPS(false),
+			adaptd.CheckAndRedirect(a.userIsAuthenticated, a.LoginURL, http.StatusFound),
 		}
+		return adaptd.Adapt(h, adapters...)
 	}
 }
 
-// HandleFuncAuth is like http.HandleFunc except it is verified the user is logged in.
-func (a *HTTPAuth) HandleFuncAuth(handler http.HandlerFunc) http.HandlerFunc {
-	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
-		ses, err := a.userIsAuthenticated(r)
-		if err != nil {
-			log.Printf("User requesting %v but is not logged in. Redirecting to login page\n", r.URL)
-			http.Redirect(w, r, a.LoginURL, http.StatusFound)
-		} else {
-			log.Printf("User %v is logged in, handling request %v", ses.Username(), r.URL)
-			a.sesHandler.AttachCookie(w, ses)
-			handler(w, r)
-		}
-	})
-}
-
-// HandleFuncCSRF handles both GET and POST requests.
+// CSRFAdapter handles both GET and POST requests.
 // If the request is GET, then we generate a CSRF token to be included
 // If the request is POST, then we validate the CSRF token before continuing
-func (a *HTTPAuth) HandleFuncCSRF(getHandler CSRFHandler, postHandler http.HandlerFunc) http.HandlerFunc {
-	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
-		var err error
-		if r.Method == "POST" {
-			if a.csrfHandler.ValidToken(r.PostFormValue("csrf")) {
-				postHandler(w, r)
-				return
-			}
-			err = errors.New("Invalid CSRF token")
+func (a *HTTPAuth) CSRFAdapter(postHandler http.Handler) adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		adapters := []adaptd.Adapter{
+			adaptd.EnsureHTTPS(false),
+			TryPostErrorContext(a.csrfHandler.ValidToken, postHandler),
+			adaptd.AddHeaderWithFunc(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken),
 		}
-		token := a.csrfHandler.GenerateNewToken()
-		if token == "" {
-			err = errors.New("Error generating a new CSRF token")
-		}
-		getHandler(w, r, token, err)
-	})
-}
-
-// HandleFuncCSRFWithAuth is a simple helper that combines the functionality of Auth
-// and CSRF checks, in that order
-func (a *HTTPAuth) HandleFuncCSRFWithAuth(getHandler CSRFHandler, postHandler http.HandlerFunc) http.HandlerFunc {
-	return a.HandleFuncAuth(a.HandleFuncCSRF(getHandler, postHandler))
-}
-
-// LoginHandler handles the login GET and POST requests
-// If it is determined that the login page should be shown, then the handler function is called.
-// The string parameter of the handler represents the csrf token that should be used with the login request.
-// The error parament of the handler represents any errors that occurred when logging the user in.
-func (a *HTTPAuth) LoginHandler(handler CSRFHandler) http.HandlerFunc {
-	h := func(w http.ResponseWriter, r *http.Request, token string, err error) {
-		ses, e := a.userIsAuthenticated(r)
-		if e == nil {
-			log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
-			a.sesHandler.AttachCookie(w, ses)
-			http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
-			return
-		}
-		handler(w, r, token, err)
+		return adaptd.Adapt(h, adapters...)
 	}
-	return a.HandleFuncCSRF(h, a.logUserIn)
 }
 
-// LogoutHandler handles the logout GET and POST requests
-// If it is determined that the logout page should be shown, then the handler function is called.
-func (a *HTTPAuth) LogoutHandler(redirectOnSuccess string) http.HandlerFunc {
-	return a.HandleFuncHTTPSRedirect(func(w http.ResponseWriter, r *http.Request) {
-		ses, err := a.userIsAuthenticated(r)
-		if err != nil {
-			log.Printf("User requesting logout page, but is already logged out. Redirecting to %v\n", redirectOnSuccess)
-		} else {
-			err = a.sesHandler.DestroySession(ses)
-			if err != nil {
-				log.Printf("Error logging a user out: %v\n", err)
-			}
-			log.Printf("User %v logged out, redirecting to %v\n", ses.Username(), redirectOnSuccess)
+// CSRFAdapterCSRFWithAuth is a simple helper that combines the functionality of Auth
+// and CSRF checks, in that order
+func (a *HTTPAuth) CSRFAdapterCSRFWithAuth(postHandler http.Handler) adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		adapters := []adaptd.Adapter{
+			a.RedirectIfUserNotAuthenticated(),
+			a.CSRFAdapter(postHandler),
 		}
-		http.Redirect(w, r, redirectOnSuccess, http.StatusFound)
-	})
+		return adaptd.Adapt(h, adapters...)
+	}
+}
+
+// LoginAdapter handles the login GET and POST requests
+// If it is determined that the login page should be shown, then the handler function is called.
+// If the user login POST request fails, the handler passed to the adapter is called again,
+// this time with a redirect with http.StatusUnauthorized.
+func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
+	f := func(w http.ResponseWriter, r *http.Request) bool {
+		if a.userIsAuthenticated(w, r) {
+			ses := SessionFromContext(r.Context())
+			a.sesHandler.AttachCookie(w, ses)
+			return false
+		}
+		return true
+	}
+
+	return func(h http.Handler) http.Handler {
+		adapters := []adaptd.Adapter{
+			adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, http.StatusFound),
+			a.CSRFAdapter(http.HandlerFunc(a.logUserIn)),
+		}
+
+		return adaptd.Adapt(h, adapters...)
+	}
+}
+
+// LogoutAdapter handles the logout requests
+// The handler passed to the Adapter is only called is when the logout fails.
+// In this case, the error and the session are put on the Request's context.
+func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		g := func(w http.ResponseWriter, r *http.Request) bool {
+			return !a.logUserOut(w, r)
+		}
+		adapters := []adaptd.Adapter{
+			adaptd.CheckAndRedirect(a.userIsAuthenticated, redirectOnSuccess, http.StatusFound),
+			adaptd.CheckAndRedirect(g, redirectOnSuccess, http.StatusFound),
+		}
+		return adaptd.Adapt(h, adapters...)
+	}
 }
 
 // CurrentUser returns the username of the current user
@@ -196,12 +195,11 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 }
 
 func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
+	// TODO: Check that redirect is a GET request. If it is not, we need to do something different here.
 	var ses *session.Session
 	// If the user is authenticated already, then we just redirect
-	ses, err := a.userIsAuthenticated(r)
-	if err == nil {
+	if a.userIsAuthenticated(w, r) {
 		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
-		a.sesHandler.AttachCookie(w, ses)
 		http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
 		return
 	}
@@ -224,6 +222,19 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	log.Println("User login failed, redirecting back to login page")
 	err = errors.New("Login failed")
 	http.Redirect(w, r, a.LoginURL, http.StatusUnauthorized)
+}
+
+func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
+	ses, err := a.sesHandler.ParseSessionFromRequest(r)
+	if ses != nil {
+		err = a.sesHandler.DestroySession(ses)
+		if err != nil {
+			log.Printf("Could not log user out so creating a new session context\n")
+			a.sesHandler.AttachCookie(w, ses)
+			*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		}
+	}
+	return err == nil
 }
 
 func (a *HTTPAuth) getUserPasswordHash(username string) ([]byte, error) {
@@ -249,7 +260,12 @@ func (a *HTTPAuth) getUserPasswordHash(username string) ([]byte, error) {
 	return pwDecoded, tx.Commit()
 }
 
-func (a *HTTPAuth) userIsAuthenticated(r *http.Request) (*session.Session, error) {
+func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) bool {
 	// Check that the user is logged in by looking for a session cookie
-	return a.sesHandler.ParseSessionFromRequest(r)
+	ses, err := a.sesHandler.ParseSessionFromRequest(r)
+	if err != nil {
+		return false
+	}
+	a.sesHandler.AttachCookie(w, ses)
+	return true
 }

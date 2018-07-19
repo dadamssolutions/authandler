@@ -1,4 +1,4 @@
-package httpauth
+package authandler
 
 import (
 	"bytes"
@@ -12,41 +12,55 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dadamssolutions/authandler/csrfhandler"
 )
 
 var a *HTTPAuth
 var num int
+var testHand testHandler
 
-func TestHTTPSRedirectHTTP(t *testing.T) {
-	num = 0
-	ts := httptest.NewServer(http.HandlerFunc(a.HandleFuncHTTPSRedirect(testHandler)))
-	defer ts.Close()
-
-	client := ts.Client()
-	client.CheckRedirect = checkRedirect
-	resp, err := client.Get(ts.URL)
-
-	if err == nil || resp.StatusCode != http.StatusTemporaryRedirect || num != 0 {
-		t.Error("HTTP request not redirected")
-	}
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	log.Println(req.Method)
+	return fmt.Errorf("Redirected to %v", req.URL)
 }
-func TestHTTPSRedirectHTTPS(t *testing.T) {
-	num = 0
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.HandleFuncHTTPSRedirect(testHandler)))
-	defer ts.Close()
 
-	client := ts.Client()
-	resp, err := client.Get(ts.URL)
+type testHandler struct{}
 
-	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
-		log.Println(err)
-		t.Error("HTTPS request unexpectedly redirected")
+func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	num++
+	ses := SessionFromContext(r.Context())
+	if ses != nil {
+		a.sesHandler.AttachCookie(w, ses)
 	}
+	err := ErrorFromContext(r.Context())
+	if err != nil {
+		log.Println(err)
+		num *= 10
+	}
+	w.Write([]byte("Test handler"))
+}
+
+func addUserToDatabase() {
+	// Add user to the database for testing
+	pass := strings.Repeat("d", 64)
+	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
+	tx, _ := a.db.Begin()
+	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
+	tx.Commit()
+}
+
+func removeUserFromDatabase() {
+	// Remove user from database
+	tx, _ := a.db.Begin()
+	tx.Exec("DELETE FROM sessions WHERE user_id = 'dadams';")
+	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
+	tx.Commit()
 }
 
 func TestUserNotLoggedInHandler(t *testing.T) {
 	num = 0
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.HandleFuncAuth(testHandler)))
+	ts := httptest.NewTLSServer(a.RedirectIfUserNotAuthenticated()(testHand))
 	defer ts.Close()
 
 	client := ts.Client()
@@ -60,7 +74,7 @@ func TestUserNotLoggedInHandler(t *testing.T) {
 
 func TestUserLoggedInHandler(t *testing.T) {
 	num = 0
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.HandleFuncAuth(testHandler)))
+	ts := httptest.NewTLSServer(a.RedirectIfUserNotAuthenticated()(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -154,9 +168,10 @@ func TestGetUserPasswordHash(t *testing.T) {
 }
 
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
+	num = 0
 	addUserToDatabase()
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
+	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -180,7 +195,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
+	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -190,11 +205,14 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "false")
-	form.Set("csrf", a.csrfHandler.GenerateNewToken())
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
-	resp, err := client.PostForm(ts.URL, form)
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+	resp, err := client.Do(req)
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted || num != 0 {
 		log.Println(err)
 		log.Println(len(resp.Cookies()))
 		log.Println(resp.StatusCode)
@@ -206,10 +224,10 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	}
 
 	// Now user should be redirected when visiting login page
-	req, _ := http.NewRequest("GET", ts.URL, nil)
+	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
-	if err == nil {
+	if err == nil || len(resp.Cookies()) == 0 || num != 0 {
 		t.Error("Request should be redirected when user is logged in")
 	}
 	if resp.StatusCode != http.StatusFound {
@@ -240,7 +258,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
+	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -250,18 +268,23 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("e", 64))
 	form.Set("remember", "false")
-	form.Set("csrf", a.csrfHandler.GenerateNewToken())
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should not log user in with wrong password
-	resp, _ := client.PostForm(ts.URL, form)
+	resp, _ := client.Do(req)
 	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
 	form.Set("username", "nadams")
-	form.Set("csrf", a.csrfHandler.GenerateNewToken())
+	req, _ = http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
 	// POST request should not log user in
-	resp, _ = client.PostForm(ts.URL, form)
+	resp, _ = client.Do(req)
 	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
@@ -273,7 +296,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
+	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -283,10 +306,13 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "true")
-	form.Set("csrf", a.csrfHandler.GenerateNewToken())
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
-	resp, err := client.PostForm(ts.URL, form)
+	resp, err := client.Do(req)
 	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
 		t.Error("Should be redirected after a successful login")
 	}
@@ -300,7 +326,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	a.sesHandler.DestroySession(ses)
 
 	// Now user should be asked to login, even with expired session cookie attached
-	req, _ := http.NewRequest("GET", ts.URL, nil)
+	req, _ = http.NewRequest("GET", ts.URL, nil)
 	req.AddCookie(cookie)
 	resp, err = client.Do(req)
 	if err != nil {
@@ -317,7 +343,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
+	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -327,10 +353,13 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	form.Set("username", "dadams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "yes")
-	form.Set("csrf", a.csrfHandler.GenerateNewToken())
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
-	resp, err := client.PostForm(ts.URL, form)
+	resp, err := client.Do(req)
 	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
 		t.Error("Should be redirected after a successful login")
 	}
@@ -350,7 +379,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	addUserToDatabase()
 	num = 0
 
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LoginHandler(testLogInHandler)))
+	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -361,8 +390,13 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "yes")
 
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	// Don't set the CSRF header
+	// req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
+
 	// POST request should not be valid because the CSRF token is not there
-	resp, _ := client.PostForm(ts.URL, form)
+	resp, _ := client.Do(req)
 	if resp.StatusCode != http.StatusOK || num != 10 {
 		log.Println(resp.StatusCode)
 		log.Println(num)
@@ -373,7 +407,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 }
 
 func TestUserLogOutHandler(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(a.LogoutHandler("/")))
+	ts := httptest.NewTLSServer(a.LogoutAdapter("/")(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -411,38 +445,6 @@ func TestUserLogOutHandler(t *testing.T) {
 	}
 }
 
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	return fmt.Errorf("Redirected to %v", req.URL)
-}
-
-func testHandler(w http.ResponseWriter, r *http.Request) {
-	num++
-}
-
-func testLogInHandler(w http.ResponseWriter, r *http.Request, csrf string, err error) {
-	num++
-	log.Println(err)
-	if err != nil {
-		num *= 10
-	}
-}
-
-func addUserToDatabase() {
-	// Add user to the database for testing
-	pass := strings.Repeat("d", 64)
-	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
-	tx, _ := a.db.Begin()
-	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
-	tx.Commit()
-}
-
-func removeUserFromDatabase() {
-	// Remove user from database
-	tx, _ := a.db.Begin()
-	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
-	tx.Commit()
-}
-
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	var err error
@@ -450,8 +452,10 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Panic(err)
 	}
+	testHand = testHandler{}
 	exitCode := m.Run()
 	// Wait a little bit for the sessions to be removed
 	time.Sleep(time.Second)
+	deleteUsersTestTable(a.db, a.UsersTableName)
 	os.Exit(exitCode)
 }

@@ -1,4 +1,4 @@
-package authhandler
+package authandler
 
 // Represent roles used for users.
 const (

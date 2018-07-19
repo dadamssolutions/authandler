@@ -2,11 +2,17 @@ package csrfhandler
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/dadamssolutions/authandler/seshandler"
+)
+
+const (
+	// HeaderName is the key value for the header attached to HTTP responses
+	HeaderName = "X-CSRF"
 )
 
 // CSRFHandler handles Cross-site request forgery tokens
@@ -36,13 +42,14 @@ func (c *CSRFHandler) GenerateNewToken() string {
 }
 
 // ValidToken verifies that a CSRF token is valid and then destroys it
-func (c *CSRFHandler) ValidToken(token string) bool {
+func (c *CSRFHandler) ValidToken(r *http.Request) error {
+	token := r.Header.Get(HeaderName)
 	ses, err := c.ParseSessionCookie(&http.Cookie{Name: seshandler.SessionCookieName, Value: token})
 	if err != nil {
-		log.Printf("CSRF token %v was not valid\n", token)
+		err = fmt.Errorf("CSRF token %v was not valid", token)
 		log.Println(err)
-		return false
+		return err
 	}
 	c.DestroySession(ses)
-	return true
+	return nil
 }
