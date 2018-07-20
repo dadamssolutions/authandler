@@ -1,4 +1,4 @@
-package seshandler
+package session
 
 import (
 	"crypto/rand"
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dadamssolutions/authandler/seshandler/session"
+	"github.com/dadamssolutions/authandler/handlers/session/sessions"
 	"github.com/lib/pq"
 )
 
@@ -146,14 +146,14 @@ func (s sesDataAccess) dropTable() error {
 	return tx.Commit()
 }
 
-func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, persistant bool) (*session.Session, error) {
+func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, persistant bool) (*sessions.Session, error) {
 	if !persistant {
 		maxLifetime = 0
 	}
 	var selectorID, sessionID string
 	var err error
 	var tx *sql.Tx
-	var ses *session.Session
+	var ses *sessions.Session
 
 	// We need to loop until we generate unique selector and session IDs
 	for true {
@@ -162,7 +162,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 		if err != nil {
 			return nil, err
 		}
-		ses = session.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
+		ses = sessions.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
 		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
@@ -187,11 +187,11 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 
 // getSessionInfo pulls the session out of the database.
 // No validation is done here. That must be done elsewhere.
-func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime time.Duration) (*session.Session, error) {
+func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime time.Duration) (*sessions.Session, error) {
 	var dbHash, username string
 	var expires time.Time
 	var persistant bool
-	var ses *session.Session
+	var ses *sessions.Session
 	tx, err := s.Begin()
 	if err != nil {
 		return nil, err
@@ -205,9 +205,9 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime 
 	err = tx.Commit()
 	// If the session is persistant, then we set the expiration to maxLifetime
 	if persistant {
-		ses = session.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
+		ses = sessions.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
 	} else {
-		ses = session.NewSession(selectorID, sessionID, username, SessionCookieName, 0)
+		ses = sessions.NewSession(selectorID, sessionID, username, SessionCookieName, 0)
 	}
 	return ses, err
 }
@@ -230,7 +230,7 @@ func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
 	return count > 0, nil
 }
 
-func (s sesDataAccess) destroySession(ses *session.Session) error {
+func (s sesDataAccess) destroySession(ses *sessions.Session) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
@@ -243,7 +243,7 @@ func (s sesDataAccess) destroySession(ses *session.Session) error {
 }
 
 // updateSession indicates that the session is active and the expiration needs to be updated.
-func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Duration) error {
+func (s sesDataAccess) updateSession(ses *sessions.Session, maxLifetime time.Duration) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
@@ -260,7 +260,7 @@ func (s sesDataAccess) updateSession(ses *session.Session, maxLifetime time.Dura
 
 // validateSession pulls the info for a session out of the database and checks that the session is valid
 // i.e. neither destroyed nor expired
-func (s sesDataAccess) validateSession(ses *session.Session, maxLifetime time.Duration) error {
+func (s sesDataAccess) validateSession(ses *sessions.Session, maxLifetime time.Duration) error {
 	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), maxLifetime)
 	if err != nil || !ses.Equals(dbSession, s.hashString) {
 		s.destroySession(ses)

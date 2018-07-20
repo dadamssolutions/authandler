@@ -1,4 +1,4 @@
-package seshandler
+package session
 
 import (
 	"errors"

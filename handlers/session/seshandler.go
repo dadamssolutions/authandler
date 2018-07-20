@@ -1,5 +1,5 @@
 /*
-Package seshandler uses a database backend to manage session cookies for a server. A seshandler can manage persistant and session only cookies simultaneously.
+Package session uses a database backend to manage session cookies for a server. A seshandler can manage persistant and session only cookies simultaneously.
 
 Once a database connection is established, one can create a seshandler with something like:
 	sh, err := seshandler.NewSesHandlerWithDB(db, time.Minute * 20, time.Day)
@@ -15,7 +15,7 @@ A selectorID and a sessionID is generated for each session. The selectorID and a
 
 This package is best used with an authentication handler.
 */
-package seshandler
+package session
 
 import (
 	"database/sql"
@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dadamssolutions/authandler/seshandler/session"
+	"github.com/dadamssolutions/authandler/handlers/session/sessions"
 )
 
 // These are made constants because the database should be cleared and updated if they change.
@@ -35,35 +35,35 @@ const (
 	sessionIDLength   = 64
 )
 
-// SesHandler creates and maintains session in a database.
-type SesHandler struct {
+// Handler creates and maintains session in a database.
+type Handler struct {
 	dataAccess  sesDataAccess
 	maxLifetime time.Duration
 }
 
-// NewSesHandlerWithDB creates a new session handler.
+// NewHandlerWithDB creates a new session handler.
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If either timeout <= 0, then it is set to 0 (session only cookies).
-func NewSesHandlerWithDB(db *sql.DB, tableName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*SesHandler, error) {
+func NewHandlerWithDB(db *sql.DB, tableName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*Handler, error) {
 	da, err := newDataAccess(db, tableName, sessionTimeout, persistantSessionTimeout)
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
-	return newSesHandler(da, persistantSessionTimeout), nil
+	return newHandler(da, persistantSessionTimeout), nil
 }
 
-func newSesHandler(da sesDataAccess, timeout time.Duration) *SesHandler {
+func newHandler(da sesDataAccess, timeout time.Duration) *Handler {
 	if timeout < 0 {
 		timeout = 0
 	}
-	ses := &SesHandler{dataAccess: da, maxLifetime: timeout}
+	ses := &Handler{dataAccess: da, maxLifetime: timeout}
 	return ses
 }
 
 // CreateSession generates a new session for the given user ID.
-func (sh *SesHandler) CreateSession(username string, persistant bool) (*session.Session, error) {
+func (sh *Handler) CreateSession(username string, persistant bool) (*sessions.Session, error) {
 	ses, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistant)
 	if err != nil {
 		// An error here likely means a problem with the database
@@ -74,7 +74,7 @@ func (sh *SesHandler) CreateSession(username string, persistant bool) (*session.
 
 // DestroySession gets rid of a session, if it exists in the database.
 // If destroy is successful, the session pointer is set to nil.
-func (sh *SesHandler) DestroySession(ses *session.Session) error {
+func (sh *Handler) DestroySession(ses *sessions.Session) error {
 	err := sh.dataAccess.destroySession(ses)
 	if err != nil {
 		// An error here likely means a problem with the database
@@ -84,7 +84,7 @@ func (sh *SesHandler) DestroySession(ses *session.Session) error {
 }
 
 // isValidSession determines if the given session is valid.
-func (sh *SesHandler) isValidSession(ses *session.Session) bool {
+func (sh *Handler) isValidSession(ses *sessions.Session) bool {
 	// First we check that the inputs have not been tampered with
 	if ses != nil && sh.validateUserInputs(ses) {
 		// The we check the session against the session in the database
@@ -100,7 +100,7 @@ func (sh *SesHandler) isValidSession(ses *session.Session) bool {
 // UpdateSessionIfValid resets the expiration of the session from time.Now.
 // Should also be used to verify that a session is valid.
 // If the session is invalid, then a non-nil error will be returned.
-func (sh *SesHandler) UpdateSessionIfValid(ses *session.Session) (*session.Session, error) {
+func (sh *Handler) UpdateSessionIfValid(ses *sessions.Session) (*sessions.Session, error) {
 	if ok := sh.isValidSession(ses); !ok {
 		log.Println("We were provided an invalid session so we can't update it")
 		return nil, invalidSessionError(sh.dataAccess.tableName)
@@ -132,7 +132,7 @@ func (sh *SesHandler) UpdateSessionIfValid(ses *session.Session) (*session.Sessi
 
 // ParseSessionFromRequest takes a request, determines if there is a valid session cookie,
 // and returns the session, if it exists.
-func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session, error) {
+func (sh *Handler) ParseSessionFromRequest(r *http.Request) (*sessions.Session, error) {
 	cookie, err := r.Cookie(SessionCookieName)
 	// No session cookie available
 	if err != nil {
@@ -148,7 +148,7 @@ func (sh *SesHandler) ParseSessionFromRequest(r *http.Request) (*session.Session
 
 // ParseSessionCookie takes a cookie, determines if it is a valid session cookie,
 // and returns the session, if it exists.
-func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session, error) {
+func (sh *Handler) ParseSessionCookie(cookie *http.Cookie) (*sessions.Session, error) {
 	// Break the cookie into its parts.
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
@@ -174,7 +174,7 @@ func (sh *SesHandler) ParseSessionCookie(cookie *http.Cookie) (*session.Session,
 
 // AttachCookie sets a cookie on a ResponseWriter
 // A session is returned because the session may have changed when it is updated
-func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) (*session.Session, error) {
+func (sh *Handler) AttachCookie(w http.ResponseWriter, ses *sessions.Session) (*sessions.Session, error) {
 	// Need to save the selector incase the call to UpdateSessionIfValid returns an error
 	var err error
 	var selectorID string
@@ -191,7 +191,7 @@ func (sh *SesHandler) AttachCookie(w http.ResponseWriter, ses *session.Session) 
 	return ses, nil
 }
 
-func (sh *SesHandler) validateUserInputs(ses *session.Session) bool {
+func (sh *Handler) validateUserInputs(ses *sessions.Session) bool {
 	// Escaping these should not change them.
 	// If it does, then we know the session has been altered.
 	s1 := url.QueryEscape(ses.SelectorID())

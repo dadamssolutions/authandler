@@ -1,4 +1,4 @@
-package emailhandler
+package email
 
 import (
 	"bytes"
@@ -11,17 +11,17 @@ import (
 	"testing"
 )
 
-var eh *EmailSender
+var eh *Sender
 
-type EmailReceiver struct {
+type Receiver struct {
 	name, email string
 }
 
-func (er *EmailReceiver) Email() string {
+func (er *Receiver) Email() string {
 	return er.email
 }
 
-func (er *EmailReceiver) Greeting() string {
+func (er *Receiver) Greeting() string {
 	return er.name
 }
 
@@ -45,7 +45,7 @@ func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []b
 }
 
 func TestSendMessages(t *testing.T) {
-	twoTests := []Recipient{Recipient(&EmailReceiver{"Mr. Adams", testEmail1}), Recipient(&EmailReceiver{"Mr. Donald Adams", testEmail2})}
+	twoTests := []Recipient{Recipient(&Receiver{"Mr. Adams", testEmail1}), Recipient(&Receiver{"Mr. Donald Adams", testEmail2})}
 	tmp := template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))
 	data := make(map[string]interface{})
 	data["Link"] = "https://thedadams.com"
@@ -56,7 +56,7 @@ func TestSendMessages(t *testing.T) {
 }
 
 func TestSendSignUpMessage(t *testing.T) {
-	r := &EmailReceiver{"Mr. Adams", testEmail1}
+	r := &Receiver{"Mr. Adams", testEmail1}
 	err := eh.SendSignUpMessage(r, "https://thedadams.com")
 	if err != nil {
 		t.Error(err)
@@ -64,7 +64,7 @@ func TestSendSignUpMessage(t *testing.T) {
 }
 
 func TestSendPasswordResetMessage(t *testing.T) {
-	r := &EmailReceiver{"Mr. Adams", testEmail1}
+	r := &Receiver{"Mr. Adams", testEmail1}
 	err := eh.SendPasswordResetMessage(r, "https://thedadams.com")
 	if err != nil {
 		t.Error(err)
@@ -72,7 +72,7 @@ func TestSendPasswordResetMessage(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	eh = NewEmailSender("House Points Test", hostname, "587", testEmail1, password)
+	eh = NewSender("House Points Test", hostname, "587", testEmail1, password)
 	eh.SendMail = SendMail
 
 	exitCode := m.Run()

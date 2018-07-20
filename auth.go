@@ -51,6 +51,7 @@ type HTTPAuth struct {
 	db                       *sql.DB
 	sesHandler               *seshandler.SesHandler
 	csrfHandler              *csrfhandler.CSRFHandler
+	passResetHandler         *csrfhandler.CSRFHandler
 	csrfUsername             string
 	UsersTableName           string
 	LoginURL                 string
@@ -247,6 +248,24 @@ func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 	return err == nil
+}
+
+func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
+	var ses *session.Session
+	// If the user is authenticated already, then we just redirect
+	if a.userIsAuthenticated(w, r) {
+		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
+		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
+		return
+	}
+	// If the user is not logged in, we get the new password
+	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
+	username := a.passResetHandler
+	hashedPassword, err := a.getUserPasswordHash(username)
+}
+
+func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func (a *HTTPAuth) getUserPasswordHash(username string) ([]byte, error) {

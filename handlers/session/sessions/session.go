@@ -1,12 +1,12 @@
 /*
-Package session contains a Session type used to track session cookies in HTTP responses.
+Package sessions contains a Session type used to track session cookies in HTTP responses.
 
 Each session will have a unique selector and session ID, be attached to a single user account,
 and can be persistant or session only.
 
 This package should be not be uses without seshandler which manages sessions for a server.
 */
-package session
+package sessions
 
 import (
 	"net/http"

@@ -1,4 +1,4 @@
-package emailhandler
+package email
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/smtp"
 
-	"github.com/dadamssolutions/authandler/emailhandler/smtpauth"
+	"github.com/dadamssolutions/authandler/handlers/email/smtpauth"
 )
 
 // Recipient interface represents someone who can receive an email message.
@@ -17,8 +17,8 @@ type Recipient interface {
 	Greeting() string
 }
 
-// EmailSender handles all the sending of email messages like password reset and sign up.
-type EmailSender struct {
+// Sender handles all the sending of email messages like password reset and sign up.
+type Sender struct {
 	hostname, port, username string
 	// You can include {{.Organization}} in you templates and get the name of the organization in your messages.
 	Organization string
@@ -31,14 +31,14 @@ type EmailSender struct {
 	SendMail func(string, smtp.Auth, string, []string, []byte) error
 }
 
-// NewEmailSender returns an email handler for sending messages from a single address.
-func NewEmailSender(organization, hostname, port, username, password string) *EmailSender {
-	return &EmailSender{hostname, port, username, organization, "templates/passwordreset.tmpl.html", "templates/signup.tmpl.html", smtpauth.NewLoginAuth(username, password), smtp.SendMail}
+// NewSender returns an email handler for sending messages from a single address.
+func NewSender(organization, hostname, port, username, password string) *Sender {
+	return &Sender{hostname, port, username, organization, "templates/passwordreset.tmpl.html", "templates/signup.tmpl.html", smtpauth.NewLoginAuth(username, password), smtp.SendMail}
 }
 
 // SendMessage sends the message (as an HTML template) to the recipients
 // Then template may include .Greeting or .Email for the information for the corresponding recipient.
-func (e *EmailSender) SendMessage(tmpl *template.Template, subject string, data map[string]interface{}, recipientList ...Recipient) error {
+func (e *Sender) SendMessage(tmpl *template.Template, subject string, data map[string]interface{}, recipientList ...Recipient) error {
 	// Headers for HTML message and subject info
 	headers := []byte(fmt.Sprintf("Subject: %v\r\nFrom: %v\r\nMIME-version: 1.0; \r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n", subject, e.username))
 	buf := new(bytes.Buffer)
@@ -66,7 +66,7 @@ func (e *EmailSender) SendMessage(tmpl *template.Template, subject string, data 
 }
 
 // SendPasswordResetMessage sends a password reset message to the given email address.
-func (e *EmailSender) SendPasswordResetMessage(receiver Recipient, resetURL string) error {
+func (e *Sender) SendPasswordResetMessage(receiver Recipient, resetURL string) error {
 	tmpl := template.Must(template.ParseFiles(e.PasswordResetTemp))
 	if tmpl == nil {
 		return errors.New("Cannot find password reset template")
@@ -77,7 +77,7 @@ func (e *EmailSender) SendPasswordResetMessage(receiver Recipient, resetURL stri
 }
 
 // SendSignUpMessage sends a password reset message to the given email address.
-func (e *EmailSender) SendSignUpMessage(receiver Recipient, resetURL string) error {
+func (e *Sender) SendSignUpMessage(receiver Recipient, resetURL string) error {
 	tmpl := template.Must(template.ParseFiles(e.SignUpTemp))
 	if tmpl == nil {
 		return errors.New("Cannot find sign up template")
