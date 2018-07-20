@@ -266,10 +266,14 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
-	if err == nil || len(resp.Cookies()) == 0 || num != 0 {
+	redirectedURL, _ := resp.Location()
+	if err != nil || redirectedURL.Path == req.URL.Path || len(resp.Cookies()) == 0 || num != 0 {
+		log.Println(err)
+		log.Println(len(resp.Cookies()))
+		log.Println(num)
 		t.Error("Request should be redirected when user is logged in")
 	}
-	if resp.StatusCode != http.StatusFound {
+	if resp.StatusCode != http.StatusAccepted {
 		t.Error("Login GET request with user logged in should redirect")
 	}
 

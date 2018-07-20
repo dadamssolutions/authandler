@@ -138,6 +138,9 @@ func (a *HTTPAuth) CSRFAdapterCSRFWithAuth(postHandler http.Handler) adaptd.Adap
 // If it is determined that the login page should be shown, then the handler function is called.
 // If the user login POST request fails, the handler passed to the adapter is called again,
 // this time with a redirect with http.StatusUnauthorized.
+//
+// The form for the post request should point back to this handler.
+// The form should have three imputs: username, password, and remember.
 func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) bool {
 		if a.userIsAuthenticated(w, r) {
@@ -150,8 +153,8 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, http.StatusFound),
-			a.CSRFAdapter(http.HandlerFunc(a.logUserIn)),
+			adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, http.StatusAccepted),
+			a.CSRFAdapter(RedirectOnError(a.logUserIn, http.RedirectHandler(a.LoginURL, http.StatusUnauthorized))(http.RedirectHandler(a.RedirectAfterLogin, http.StatusAccepted))),
 		}
 
 		return adaptd.Adapt(h, adapters...)
@@ -208,7 +211,7 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	// If the user is authenticated already, then we just redirect
 	if a.userIsAuthenticated(w, r) {
 		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
-		http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
+		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
 		return
 	}
 	// If the user is not logged in, we check the credentials
@@ -224,12 +227,13 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	if ses != nil {
 		log.Printf("User %v logged in successfully. Redirecting to %v\n", username, a.RedirectAfterLogin)
 		a.sesHandler.AttachCookie(w, ses)
-		http.Redirect(w, r, a.RedirectAfterLogin, http.StatusAccepted)
+		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusAccepted)
 		return
 	}
 	log.Println("User login failed, redirecting back to login page")
 	err = errors.New("Login failed")
-	http.Redirect(w, r, a.LoginURL, http.StatusUnauthorized)
+	*r = *r.WithContext(NewErrorContext(r.Context(), err))
+	// http.Redirect(w, r, a.LoginURL, http.StatusUnauthorized)
 }
 
 func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {

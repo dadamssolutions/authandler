@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authandler/seshandler/session"
 )
 
 // TryPostErrorContext checks that the error from f is nil.
@@ -31,19 +30,13 @@ func TryPostErrorContext(f func(*http.Request) error, postHandler http.Handler) 
 	}
 }
 
-// PullSessionFromContextAndCall pulls from the request context and calls the given function.
-// If f returns an error, the error is put on the Request's context to be read.
-// It is the callers responsibility to ensure that the return type of fromContext and the parameter
-// type of f are the same or do type checking.
-func PullSessionFromContextAndCall(f func(http.ResponseWriter, *session.Session) error) adaptd.Adapter {
-	return func(h http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ses := SessionFromContext(r.Context())
-			err := f(w, ses)
-			if err != nil {
-				r = r.WithContext(NewErrorContext(r.Context(), err))
-			}
-			h.ServeHTTP(w, r)
-		})
+// RedirectOnError redirects based on whether it kind find an error in the Request's context.
+func RedirectOnError(f func(http.ResponseWriter, *http.Request), h http.Handler) adaptd.Adapter {
+	g := func(w http.ResponseWriter, r *http.Request) bool {
+		f(w, r)
+		err := ErrorFromContext(r.Context())
+		return err == nil
 	}
+
+	return adaptd.OnCheck(g, h)
 }
