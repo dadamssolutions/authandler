@@ -48,6 +48,10 @@ func TestGetters(t *testing.T) {
 	if ses.Username() != strings.Repeat("C", 12) {
 		t.Error("Username not returned correctly")
 	}
+
+	if ses.EncryptedUsername() != strings.Repeat("D", 12) {
+		t.Error("Encrypted username not returned correctly")
+	}
 }
 
 func TestSessionEquality(t *testing.T) {
