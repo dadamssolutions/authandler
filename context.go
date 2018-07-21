@@ -3,7 +3,7 @@ package authandler
 import (
 	"context"
 
-	"github.com/dadamssolutions/authandler/seshandler/session"
+	"github.com/dadamssolutions/authandler/handlers/session/sessions"
 )
 
 type key int
@@ -39,13 +39,13 @@ func UserFromContext(ctx context.Context) *User {
 }
 
 // NewSessionContext adds a *session.Session to the context.
-func NewSessionContext(ctx context.Context, ses *session.Session) context.Context {
+func NewSessionContext(ctx context.Context, ses *sessions.Session) context.Context {
 	return context.WithValue(ctx, sessionKey, ses)
 }
 
 // SessionFromContext looks for a session in the context.
 // If there is no session found, then the return value will be nil.
-func SessionFromContext(ctx context.Context) *session.Session {
-	ses, _ := ctx.Value(sessionKey).(*session.Session)
+func SessionFromContext(ctx context.Context) *sessions.Session {
+	ses, _ := ctx.Value(sessionKey).(*sessions.Session)
 	return ses
 }

@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authandler/csrfhandler"
-	"github.com/dadamssolutions/authandler/seshandler"
-	"github.com/dadamssolutions/authandler/seshandler/session"
+	"github.com/dadamssolutions/authandler/handlers/csrf"
+	"github.com/dadamssolutions/authandler/handlers/passreset"
+	"github.com/dadamssolutions/authandler/handlers/session"
+	"github.com/dadamssolutions/authandler/handlers/session/sessions"
 	_ "github.com/lib/pq" // Database driver
 	"golang.org/x/crypto/bcrypt"
 )
@@ -49,10 +50,10 @@ func deleteUsersTestTable(db *sql.DB, tableName string) error {
 // It also handles csrf token generation and validation.
 type HTTPAuth struct {
 	db                       *sql.DB
-	sesHandler               *seshandler.SesHandler
-	csrfHandler              *csrfhandler.CSRFHandler
-	passResetHandler         *csrfhandler.CSRFHandler
-	csrfUsername             string
+	sesHandler               *session.Handler
+	csrfHandler              *csrf.Handler
+	passResetHandler         *passreset.Handler
+	secret                   []byte
 	UsersTableName           string
 	LoginURL                 string
 	LogoutURL                string
@@ -64,18 +65,18 @@ type HTTPAuth struct {
 // NewHTTPAuth takes database information and hash generation and comparative functions
 // and returns a HTTPAuth handler with those specifications.
 // Most callers should user DefaultHTTPAuth instead.
-func NewHTTPAuth(driverName, dbURL, tableName string, sessionTimeout, persistantSessionTimeout time.Duration, g func([]byte) ([]byte, error), c func([]byte, []byte) error) (*HTTPAuth, error) {
+func NewHTTPAuth(driverName, dbURL, tableName string, sessionTimeout, persistantSessionTimeout time.Duration, g func([]byte) ([]byte, error), c func([]byte, []byte) error, secret []byte) (*HTTPAuth, error) {
 	db, err := sql.Open(driverName, dbURL)
 	if err != nil {
 		// Database connections failed.
 		return nil, errors.New("Database connection failed")
 	}
-	ses, err := seshandler.NewSesHandlerWithDB(db, "sessions", sessionTimeout, persistantSessionTimeout)
+	ses, err := session.NewHandlerWithDB(db, "sessions", sessionTimeout, persistantSessionTimeout, secret)
 	if err != nil {
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")
 	}
-	csrf := csrfhandler.NewCSRFHandler(db, sessionTimeout)
+	csrf := csrf.NewHandler(db, sessionTimeout, secret)
 	if csrf == nil {
 		// CSRF handler could not be created, likely a database problem.
 		return nil, errors.New("CSRF handler could not be created")
@@ -84,17 +85,17 @@ func NewHTTPAuth(driverName, dbURL, tableName string, sessionTimeout, persistant
 	if err != nil {
 		return nil, errors.New("Users database table could not be created")
 	}
-	return &HTTPAuth{db: db, sesHandler: ses, csrfHandler: csrf, UsersTableName: tableName, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout", RedirectAfterLogin: "/user", csrfUsername: "csrf"}, nil
+	return &HTTPAuth{db: db, sesHandler: ses, csrfHandler: csrf, UsersTableName: tableName, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout", RedirectAfterLogin: "/user"}, nil
 }
 
 // DefaultHTTPAuth uses the standard bcyrpt functions for
 // generating and comparing password hashes.
 // cost parameter is the desired cost for bycrypt generated hashes.
-func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSessionTimeout time.Duration, cost int) (*HTTPAuth, error) {
+func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSessionTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
 	}
-	return NewHTTPAuth(driverName, dbURL, "users", sessionTimeout, persistantSessionTimeout, g, bcrypt.CompareHashAndPassword)
+	return NewHTTPAuth(driverName, dbURL, "users", sessionTimeout, persistantSessionTimeout, g, bcrypt.CompareHashAndPassword, secret)
 }
 
 // RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
@@ -117,7 +118,7 @@ func (a *HTTPAuth) CSRFAdapter(postHandler http.Handler) adaptd.Adapter {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
 			TryPostErrorContext(a.csrfHandler.ValidToken, postHandler),
-			adaptd.AddHeaderWithFunc(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken),
+			adaptd.AddHeaderWithFunc(csrf.HeaderName, a.csrfHandler.GenerateNewToken),
 		}
 		return adaptd.Adapt(h, adapters...)
 	}
@@ -208,7 +209,7 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 }
 
 func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
-	var ses *session.Session
+	var ses *sessions.Session
 	// If the user is authenticated already, then we just redirect
 	if a.userIsAuthenticated(w, r) {
 		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
@@ -251,17 +252,7 @@ func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
-	var ses *session.Session
-	// If the user is authenticated already, then we just redirect
-	if a.userIsAuthenticated(w, r) {
-		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
-		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
-		return
-	}
-	// If the user is not logged in, we get the new password
-	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
-	username := a.passResetHandler
-	hashedPassword, err := a.getUserPasswordHash(username)
+
 }
 
 func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dadamssolutions/authandler/csrfhandler"
+	"github.com/dadamssolutions/authandler/handlers/csrf"
 )
 
 var a *HTTPAuth
@@ -247,7 +247,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -314,7 +314,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should not log user in with wrong password
 	resp, _ := client.Do(req)
@@ -325,7 +325,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	form.Set("username", "nadams")
 	req, _ = http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 	// POST request should not log user in
 	resp, _ = client.Do(req)
 	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
@@ -352,7 +352,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -399,7 +399,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrfhandler.HeaderName, a.csrfHandler.GenerateNewToken())
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 
 	// POST request should log user in
 	resp, err := client.Do(req)
@@ -491,7 +491,7 @@ func TestUserLogOutHandler(t *testing.T) {
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	var err error
-	a, err = DefaultHTTPAuth("postgres", "user=test dbname=house-pts-test sslmode=disable", time.Second, 2*time.Second, 10)
+	a, err = DefaultHTTPAuth("postgres", "user=test dbname=house-pts-test sslmode=disable", time.Second, 2*time.Second, 10, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Panic(err)
 	}
