@@ -25,12 +25,12 @@ func TestTokenGeneration(t *testing.T) {
 }
 
 func TestTokenValidation(t *testing.T) {
-	token := passHand.GenerateNewToken("dadams")
-	req := httptest.NewRequest(http.MethodGet, "/?"+queryName+"="+token, nil)
-	if err := passHand.ValidToken(req); err != nil {
+	queryString := passHand.GenerateNewToken("dadams")
+	req := httptest.NewRequest(http.MethodGet, "/?"+queryString, nil)
+	if username, err := passHand.ValidToken(req); err != nil || username != "dadams" {
 		t.Error("Token should be valid right after it is created")
 	}
-	if err := passHand.ValidToken(req); err == nil {
+	if username, err := passHand.ValidToken(req); err == nil || username != "" {
 		t.Error("Token should not be valid after it is validated")
 	}
 }

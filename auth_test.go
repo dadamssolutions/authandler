@@ -488,6 +488,67 @@ func TestUserLogOutHandler(t *testing.T) {
 	}
 }
 
+func TestPasswordResetNoQuery(t *testing.T) {
+	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusBadRequest || redirectURL.Path != "/error" {
+		t.Error("Get request to password reset with no query should fail")
+	}
+}
+
+func TestPasswordResetLoggedIn(t *testing.T) {
+	addUserToDatabase()
+	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	req, _ := http.NewRequest("GET", ts.URL, nil)
+	// Fake log a user in
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Error("Get request to password reset with logged in user should go through")
+	}
+
+	// Fake log user out.
+	a.sesHandler.DestroySession(ses)
+
+	resp, err = client.Do(req)
+	redirectURL, _ := resp.Location()
+	if len(req.Cookies()) == 0 || err != nil || resp.StatusCode != http.StatusBadRequest || redirectURL.Path != "/error" {
+		t.Error("Get request to password reset after user logged out should redirect")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestPasswordResetValidQuery(t *testing.T) {
+	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
+	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	req, _ := http.NewRequest("GET", ts.URL+"?"+passResetQuery, nil)
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Error("Get request to password reset with correct query should go through")
+	}
+
+	// Second request should be invalid
+	resp, err = client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusBadRequest || redirectURL.Path != "/error" {
+		t.Error("Get request to password reset with user query token should fail")
+	}
+}
+
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	var err error

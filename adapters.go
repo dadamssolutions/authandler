@@ -40,16 +40,3 @@ func RedirectOnError(f func(http.ResponseWriter, *http.Request), logOnError stri
 
 	return adaptd.OnCheck(g, h, logOnError)
 }
-
-// QueryStringExists calls the handler if the given query string exists.
-// If the query string does not exist, then the handler to the Adapter is called.
-func QueryStringExists(key, logOnNonexist string, h http.Handler) adaptd.Adapter {
-	f := func(w http.ResponseWriter, r *http.Request) bool {
-		if val := r.URL.Query()[key]; val != nil {
-			return false
-		}
-		return true
-	}
-
-	return adaptd.OnCheck(f, h, logOnNonexist)
-}

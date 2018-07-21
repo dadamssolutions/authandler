@@ -37,18 +37,19 @@ func (c *Handler) GenerateNewToken(username string) string {
 		log.Println("Error creating a new password reset token")
 		return ""
 	}
-	return ses.CookieValue()
+	return queryName + "=" + ses.CookieValue()
 }
 
-// ValidToken verifies that a password reset token is valid and then destroys it
-func (c *Handler) ValidToken(r *http.Request) error {
+// ValidToken verifies that a password reset token is valid and then destroys it.
+// Returns the username of the user for a valid token and "" when there is an error.
+func (c *Handler) ValidToken(r *http.Request) (string, error) {
 	token := r.URL.Query().Get(queryName)
 	ses, err := c.ParseSessionCookie(&http.Cookie{Name: session.SessionCookieName, Value: token})
 	if err != nil {
 		err = fmt.Errorf("Password reset token %v was not valid", token)
 		log.Println(err)
-		return err
+		return "", err
 	}
 	c.DestroySession(ses)
-	return nil
+	return ses.Username(), nil
 }
