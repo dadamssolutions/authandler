@@ -21,8 +21,8 @@ type Handler struct {
 }
 
 // NewHandler creates a new handler using the database pointer.
-func NewHandler(db *sql.DB, timeout time.Duration) *Handler {
-	sh, err := session.NewHandlerWithDB(db, "csrfs", timeout, timeout)
+func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
+	sh, err := session.NewHandlerWithDB(db, "csrfs", timeout, timeout, secret)
 	if err != nil {
 		log.Println("There was a problem creating the CSRF handler")
 		log.Println(err)

@@ -45,8 +45,8 @@ type Handler struct {
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If either timeout <= 0, then it is set to 0 (session only cookies).
-func NewHandlerWithDB(db *sql.DB, tableName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration) (*Handler, error) {
-	da, err := newDataAccess(db, tableName, sessionTimeout, persistantSessionTimeout)
+func NewHandlerWithDB(db *sql.DB, tableName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration, secret []byte) (*Handler, error) {
+	da, err := newDataAccess(db, tableName, secret, sessionTimeout, persistantSessionTimeout)
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -157,15 +157,15 @@ func (sh *Handler) ParseSessionCookie(cookie *http.Cookie) (*sessions.Session, e
 		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 
-	selectorID, username, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
+	selectorID, encryptedUsername, sessionID := cookieStrings[0], cookieStrings[1], cookieStrings[2]
 	// Get the info on the session from the database
-	dbSession, err := sh.dataAccess.getSessionInfo(selectorID, sessionID, sh.maxLifetime)
+	dbSession, err := sh.dataAccess.getSessionInfo(selectorID, sessionID, encryptedUsername, sh.maxLifetime)
 	if err != nil {
 		log.Printf("Database returned an error for selector ID %v\n", selectorID)
 		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 	// Make sure the session is valid before returning it
-	if !sh.isValidSession(dbSession) || dbSession.Username() != username {
+	if !sh.isValidSession(dbSession) {
 		sh.DestroySession(dbSession)
 		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}

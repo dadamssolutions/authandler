@@ -1,10 +1,14 @@
 package session
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -30,16 +34,29 @@ const (
 type sesDataAccess struct {
 	*sql.DB
 	tableName string
+	secret    []byte
+	cipher    cipher.Block
 	lock      *sync.RWMutex
 }
 
-func newDataAccess(db *sql.DB, tableName string, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
-	sesAccess := sesDataAccess{db, tableName, &sync.RWMutex{}}
+func newDataAccess(db *sql.DB, tableName string, secret []byte, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
+	var err error
+	sesAccess := sesDataAccess{db, tableName, nil, nil, &sync.RWMutex{}}
 	if sesAccess.DB == nil {
 		log.Println("Cannot connect to the database")
 		return sesAccess, badDatabaseConnectionError()
 	}
-	err := sesAccess.createTable()
+
+	// Set up encryption/decryption capabilities.
+	if secret == nil {
+		secret = []byte(sesAccess.generateRandomString(32))
+	}
+	sesAccess.secret = secret
+	sesAccess.cipher, err = aes.NewCipher(secret)
+	if err != nil {
+		log.Println("Error creating the cipher for encryption/decryption")
+	}
+	err = sesAccess.createTable()
 	if err != nil {
 		log.Printf("Could not create the table in the database: %v\n", err)
 		return sesAccess, err
@@ -162,7 +179,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 		if err != nil {
 			return nil, err
 		}
-		ses = sessions.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
+		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), SessionCookieName, maxLifetime)
 		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
@@ -187,7 +204,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 
 // getSessionInfo pulls the session out of the database.
 // No validation is done here. That must be done elsewhere.
-func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime time.Duration) (*sessions.Session, error) {
+func (s sesDataAccess) getSessionInfo(selectorID, sessionID, encryptedUsername string, maxLifetime time.Duration) (*sessions.Session, error) {
 	var dbHash, username string
 	var expires time.Time
 	var persistant bool
@@ -203,11 +220,15 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID string, maxLifetime 
 		return nil, err
 	}
 	err = tx.Commit()
+	// Check that the encryptedUsername decrypts to the right thing. Otherwise, sessions is not valid
+	if !s.decryptAndCompare(encryptedUsername, username, selectorID) {
+		return nil, errors.New("Session username is not valid")
+	}
 	// If the session is persistant, then we set the expiration to maxLifetime
 	if persistant {
-		ses = sessions.NewSession(selectorID, sessionID, username, SessionCookieName, maxLifetime)
+		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, SessionCookieName, maxLifetime)
 	} else {
-		ses = sessions.NewSession(selectorID, sessionID, username, SessionCookieName, 0)
+		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, SessionCookieName, 0)
 	}
 	return ses, err
 }
@@ -259,9 +280,9 @@ func (s sesDataAccess) updateSession(ses *sessions.Session, maxLifetime time.Dur
 }
 
 // validateSession pulls the info for a session out of the database and checks that the session is valid
-// i.e. neither destroyed nor expired
+// i.e. neither destroyed nor expired, username and encryptedUsername match
 func (s sesDataAccess) validateSession(ses *sessions.Session, maxLifetime time.Duration) error {
-	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), maxLifetime)
+	dbSession, err := s.getSessionInfo(ses.SelectorID(), ses.SessionID(), ses.EncryptedUsername(), maxLifetime)
 	if err != nil || !ses.Equals(dbSession, s.hashString) {
 		s.destroySession(ses)
 		return sessionNotInDatabaseError(ses.SelectorID(), s.tableName)
@@ -273,4 +294,55 @@ func (s sesDataAccess) validateSession(ses *sessions.Session, maxLifetime time.D
 		return sessionExpiredError(ses.SelectorID(), s.tableName)
 	}
 	return nil
+}
+
+// Encryption functions for hiding the username.
+func (s sesDataAccess) padToBlockSize(b []byte) []byte {
+	// If the padding is already valid, then we shouldn't pad.
+	if _, err := s.isValidPadding(b); err == nil {
+		return b
+	}
+	bytesToAdd := s.cipher.BlockSize() - (len(b) % s.cipher.BlockSize())
+	return append(b, bytes.Repeat([]byte{byte(bytesToAdd)}, bytesToAdd)...)
+}
+
+func (s sesDataAccess) isValidPadding(b []byte) ([]byte, error) {
+	paddedByte := b[len(b)-1]
+	// If the last byte is 0 or greater than the block length, then we know the padding is invalid.
+	if paddedByte > byte(s.cipher.BlockSize()) || paddedByte <= 0 {
+		return b, errors.New("Invalid padding")
+	}
+	for i := len(b) - 1; i > len(b)-1-int(paddedByte); i-- {
+		if b[i] != paddedByte {
+			return b, errors.New("Invalid padding")
+		}
+	}
+	return b[:len(b)-int(paddedByte)], nil
+}
+
+func (s sesDataAccess) encrypt(d, selectorID string) string {
+	mode := cipher.NewCBCEncrypter(s.cipher, []byte(selectorID))
+	b := s.padToBlockSize([]byte(d))
+	mode.CryptBlocks(b, b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func (s sesDataAccess) decrypt(e, selectorID string) string {
+	b, err := base64.RawURLEncoding.DecodeString(e)
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	mode := cipher.NewCBCDecrypter(s.cipher, []byte(selectorID))
+	mode.CryptBlocks(b, b)
+	b, err = s.isValidPadding(b)
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	return string(b)
+}
+
+func (s sesDataAccess) decryptAndCompare(e, d, selectorID string) bool {
+	return d == s.decrypt(e, selectorID)
 }

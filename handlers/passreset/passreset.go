@@ -20,8 +20,8 @@ type Handler struct {
 }
 
 // NewHandler creates a new handler using the database pointer.
-func NewHandler(db *sql.DB, timeout time.Duration) *Handler {
-	sh, err := session.NewHandlerWithDB(db, "pass_reset_tokens", timeout, timeout)
+func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
+	sh, err := session.NewHandlerWithDB(db, "pass_reset_tokens", timeout, timeout, secret)
 	if err != nil {
 		log.Println("There was a problem creating the password reset handler")
 		log.Println(err)

@@ -17,19 +17,20 @@ import (
 
 // Session type represents an HTTP session.
 type Session struct {
-	cookie     *http.Cookie
-	selectorID string
-	sessionID  string
-	username   string
-	persistant bool
-	destroyed  bool
+	cookie            *http.Cookie
+	selectorID        string
+	sessionID         string
+	username          string
+	encryptedUsername string
+	persistant        bool
+	destroyed         bool
 
 	lock *sync.RWMutex
 }
 
 // NewSession creates a new session with the given information
-func NewSession(selectorID, sessionID, username, sessionCookieName string, maxLifetime time.Duration) *Session {
-	s := &Session{selectorID: selectorID, sessionID: sessionID, username: username, lock: &sync.RWMutex{}}
+func NewSession(selectorID, sessionID, username, encryptedUsername, sessionCookieName string, maxLifetime time.Duration) *Session {
+	s := &Session{selectorID: selectorID, sessionID: sessionID, username: username, encryptedUsername: encryptedUsername, lock: &sync.RWMutex{}}
 	c := &http.Cookie{Name: sessionCookieName, Value: s.CookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime.Seconds())}
 	s.cookie = c
 	if maxLifetime != 0 {
@@ -53,7 +54,7 @@ func (s *Session) SessionCookie() *http.Cookie {
 func (s *Session) CookieValue() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return url.QueryEscape(s.selectorID + "|" + s.username + "|" + s.sessionID)
+	return url.QueryEscape(s.selectorID + "|" + s.encryptedUsername + "|" + s.sessionID)
 }
 
 // HashPayload returns the string related to the session to be hashed.
@@ -82,6 +83,13 @@ func (s *Session) Username() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.username
+}
+
+// EncryptedUsername returns the username of the account to which the session is associated.
+func (s *Session) EncryptedUsername() string {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.encryptedUsername
 }
 
 // ExpireTime returns the time that the session will expire.

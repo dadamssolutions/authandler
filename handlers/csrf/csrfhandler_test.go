@@ -1,11 +1,11 @@
 package csrf
 
 import (
+	"bytes"
 	"database/sql"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -15,7 +15,7 @@ var db, err = sql.Open("postgres", "user=test dbname=house-pts-test sslmode=disa
 
 func TestTokenGeneration(t *testing.T) {
 	token := csrfHand.GenerateNewToken()
-	if token == "" || !strings.Contains(token, "csrf") {
+	if token == "" {
 		t.Error("Could not generate a new token")
 	}
 	// Create a request so we can validate the token which destroys it as well
@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	csrfHand = NewHandler(db, time.Minute)
+	csrfHand = NewHandler(db, time.Minute, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Fatal(err)
 	}
