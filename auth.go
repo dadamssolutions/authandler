@@ -104,7 +104,7 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
-			adaptd.CheckAndRedirect(a.userIsAuthenticated, a.LoginURL, http.StatusFound),
+			adaptd.CheckAndRedirect(a.userIsAuthenticated, a.LoginURL, "User not authenticated", http.StatusFound),
 		}
 		return adaptd.Adapt(h, adapters...)
 	}
@@ -155,8 +155,8 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, http.StatusAccepted),
-			a.CSRFAdapter(RedirectOnError(a.logUserIn, http.RedirectHandler(a.LoginURL, http.StatusUnauthorized))(http.RedirectHandler(a.RedirectAfterLogin, http.StatusAccepted))),
+			adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, "User requesting login page is logged in", http.StatusAccepted),
+			a.CSRFAdapter(RedirectOnError(a.logUserIn, "Authentication fail", http.RedirectHandler(a.LoginURL, http.StatusUnauthorized))(http.RedirectHandler(a.RedirectAfterLogin, http.StatusAccepted))),
 		}
 
 		return adaptd.Adapt(h, adapters...)
@@ -172,8 +172,8 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 			return !a.logUserOut(w, r)
 		}
 		adapters := []adaptd.Adapter{
-			adaptd.CheckAndRedirect(a.userIsAuthenticated, redirectOnSuccess, http.StatusFound),
-			adaptd.CheckAndRedirect(g, redirectOnSuccess, http.StatusFound),
+			adaptd.CheckAndRedirect(a.userIsAuthenticated, "Requesting logout page, but no user is logged in", redirectOnSuccess, http.StatusFound),
+			adaptd.CheckAndRedirect(g, "User was logged out", redirectOnSuccess, http.StatusFound),
 		}
 		return adaptd.Adapt(h, adapters...)
 	}

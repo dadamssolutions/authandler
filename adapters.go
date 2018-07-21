@@ -31,19 +31,19 @@ func TryPostErrorContext(f func(*http.Request) error, postHandler http.Handler) 
 }
 
 // RedirectOnError redirects based on whether it kind find an error in the Request's context.
-func RedirectOnError(f func(http.ResponseWriter, *http.Request), h http.Handler) adaptd.Adapter {
+func RedirectOnError(f func(http.ResponseWriter, *http.Request), logOnError string, h http.Handler) adaptd.Adapter {
 	g := func(w http.ResponseWriter, r *http.Request) bool {
 		f(w, r)
 		err := ErrorFromContext(r.Context())
 		return err == nil
 	}
 
-	return adaptd.OnCheck(g, h)
+	return adaptd.OnCheck(g, h, logOnError)
 }
 
 // QueryStringExists calls the handler if the given query string exists.
 // If the query string does not exist, then the handler to the Adapter is called.
-func QueryStringExists(key string, h http.Handler) adaptd.Adapter {
+func QueryStringExists(key, logOnNonexist string, h http.Handler) adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) bool {
 		if val := r.URL.Query()[key]; val != nil {
 			return false
@@ -51,5 +51,5 @@ func QueryStringExists(key string, h http.Handler) adaptd.Adapter {
 		return true
 	}
 
-	return adaptd.OnCheck(f, h)
+	return adaptd.OnCheck(f, h, logOnNonexist)
 }
