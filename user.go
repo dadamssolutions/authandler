@@ -13,7 +13,7 @@ const (
 	Supervisor
 	Admin
 
-	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, valid_code char(64) DEFAULT '', pass_hash char(80) DEFAULT '', PRIMARY KEY (username));"
+	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT '', pass_hash char(80) DEFAULT '', PRIMARY KEY (username));"
 	getUserInfoSQL          = "SELECT username, fname, lname, email, role, valid_code FROM %v WHERE username = '%v';"
 	getUserPasswordHash     = "SELECT pass_hash FROM %v WHERE username = '%v';"
 	deleteUsersTestTableSQL = "DROP TABLE %v;"
@@ -54,8 +54,7 @@ func getUserFromDB(db *sql.DB, tableName, username string) *User {
 		return nil
 	}
 	user := User{}
-	var validationCode string
-	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, username)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &validationCode)
+	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, username)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
 	if err != nil {
 		tx.Rollback()
 		log.Println(err)
@@ -63,6 +62,5 @@ func getUserFromDB(db *sql.DB, tableName, username string) *User {
 	}
 	tx.Commit()
 
-	user.validated = validationCode == ""
 	return &user
 }
