@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authandler/handlers/csrf"
+	"github.com/dadamssolutions/authandler/handlers/passreset"
 )
 
 var a *HTTPAuth
@@ -318,7 +319,10 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 
 	// POST request should not log user in with wrong password
 	resp, _ := client.Do(req)
-	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
+	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 0 || num != 10 {
+		log.Println(resp.Status)
+		log.Println(num)
+		log.Println(resp.Location())
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
@@ -328,7 +332,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 	// POST request should not log user in
 	resp, _ = client.Do(req)
-	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 0 {
+	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 0 || num != 110 {
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
@@ -440,9 +444,10 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 
 	// POST request should not be valid because the CSRF token is not there
 	resp, _ := client.Do(req)
-	if resp.StatusCode != http.StatusOK || num != 10 {
+	loc, _ := resp.Location()
+	if resp.StatusCode != http.StatusUnauthorized || loc.Path != "/login" {
 		log.Println(resp.StatusCode)
-		log.Println(num)
+		log.Println(loc.Path)
 		t.Error("Login attempt without CSRF token should redirect to login page")
 	}
 
@@ -496,13 +501,14 @@ func TestPasswordResetNoQuery(t *testing.T) {
 	req, _ := http.NewRequest("GET", ts.URL, nil)
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err != nil || resp.StatusCode != http.StatusBadRequest || redirectURL.Path != "/error" {
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL.Path != "/error" {
 		t.Error("Get request to password reset with no query should fail")
 	}
 }
 
 func TestPasswordResetLoggedIn(t *testing.T) {
 	addUserToDatabase()
+
 	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
 	defer ts.Close()
 	client := ts.Client()
@@ -522,7 +528,7 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 
 	resp, err = client.Do(req)
 	redirectURL, _ := resp.Location()
-	if len(req.Cookies()) == 0 || err != nil || resp.StatusCode != http.StatusBadRequest || redirectURL.Path != "/error" {
+	if len(req.Cookies()) == 0 || err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL.Path != "/error" {
 		t.Error("Get request to password reset after user logged out should redirect")
 	}
 
@@ -530,6 +536,8 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 }
 
 func TestPasswordResetValidQuery(t *testing.T) {
+	addUserToDatabase()
+
 	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
 	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
 	defer ts.Close()
@@ -538,15 +546,121 @@ func TestPasswordResetValidQuery(t *testing.T) {
 	req, _ := http.NewRequest("GET", ts.URL+"?"+passResetQuery, nil)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
+		log.Println(err)
+		log.Println(resp.StatusCode, resp.Status)
 		t.Error("Get request to password reset with correct query should go through")
 	}
 
 	// Second request should be invalid
 	resp, err = client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err != nil || resp.StatusCode != http.StatusBadRequest || redirectURL.Path != "/error" {
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL.Path != "/error" {
 		t.Error("Get request to password reset with user query token should fail")
 	}
+
+	removeUserFromDatabase()
+}
+
+func TestPasswordResetForm(t *testing.T) {
+	addUserToDatabase()
+
+	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
+	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("password", strings.Repeat("e", 64))
+	form.Set("repeatedPassword", strings.Repeat("e", 64))
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(passreset.HeaderName, passResetQuery)
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusAccepted || redirectURL.Path != "/login" {
+		log.Println(err)
+		log.Println(resp.Status)
+		log.Println(resp.Location())
+		t.Error("Post request with valid token should redirect to /login")
+	}
+
+	passHash, _ := a.getUserPasswordHash("dadams")
+	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("e"), 64)))) != nil {
+		t.Error("Password hash wasn't updated properly")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestPasswordResetNoCSRF(t *testing.T) {
+	addUserToDatabase()
+
+	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
+	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("password", strings.Repeat("e", 64))
+	form.Set("repeatedPassword", strings.Repeat("e", 64))
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(passreset.HeaderName, passResetQuery)
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL.Path != "/error" {
+		log.Println(err)
+		log.Println(resp.Status)
+		log.Println(resp.Location())
+		t.Error("Post request without csrf token should redirect to /error")
+	}
+
+	passHash, _ := a.getUserPasswordHash("dadams")
+	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
+		t.Error("Password hash was updated when it shouldn't have")
+	}
+
+	removeUserFromDatabase()
+}
+
+func TestPasswordResetNoPasswordToken(t *testing.T) {
+	addUserToDatabase()
+
+	ts := httptest.NewTLSServer(a.PasswordResetAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("password", strings.Repeat("e", 64))
+	form.Set("repeatedPassword", strings.Repeat("e", 64))
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL.Path != "/error" {
+		log.Println(err)
+		log.Println(resp.Status)
+		log.Println(resp.Location())
+		t.Error("Post request without password reset token should redirect to /error")
+	}
+
+	passHash, _ := a.getUserPasswordHash("dadams")
+	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
+		t.Error("Password hash was updated when it shouldn't have")
+	}
+
+	removeUserFromDatabase()
 }
 
 func TestMain(m *testing.M) {

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	updateUserPasswordSQL = "UPDATE %v SET pass_hash WHERE username = %v;"
+	updateUserPasswordSQL = "UPDATE %v SET pass_hash = '%v' WHERE username = '%v';"
 )
 
 func createUsersTable(db *sql.DB, tableName string) error {
@@ -119,28 +119,29 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	}
 }
 
-// CSRFAdapter handles both GET and POST requests.
-// If the request is GET, then we generate a CSRF token to be included
-// If the request is POST, then we validate the CSRF token before continuing
-func (a *HTTPAuth) CSRFAdapter(postHandler http.Handler) adaptd.Adapter {
+// CSRFPostAdapter handles the CSRF token verification for POST requests.
+func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Adapter {
+	f := func(w http.ResponseWriter, r *http.Request) error {
+		return a.csrfHandler.ValidToken(r)
+	}
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
-			TryPostErrorContext(a.csrfHandler.ValidToken, postHandler),
-			adaptd.AddHeaderWithFunc(csrf.HeaderName, a.csrfHandler.GenerateNewToken),
+			RedirectOnError(f, http.RedirectHandler(redirectOnError, http.StatusUnauthorized), logOnError),
 		}
+
 		return adaptd.Adapt(h, adapters...)
 	}
 }
 
-// CSRFAdapterCSRFWithAuth is a simple helper that combines the functionality of Auth
-// and CSRF checks, in that order
-func (a *HTTPAuth) CSRFAdapterCSRFWithAuth(postHandler http.Handler) adaptd.Adapter {
+// CSRFGetAdapter attaches a new CSRF token to the header of the response.
+func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			a.RedirectIfUserNotAuthenticated(),
-			a.CSRFAdapter(postHandler),
+			adaptd.EnsureHTTPS(false),
+			adaptd.AddHeaderWithFunc(csrf.HeaderName, a.csrfHandler.GenerateNewToken),
 		}
+
 		return adaptd.Adapt(h, adapters...)
 	}
 }
@@ -148,25 +149,29 @@ func (a *HTTPAuth) CSRFAdapterCSRFWithAuth(postHandler http.Handler) adaptd.Adap
 // LoginAdapter handles the login GET and POST requests
 // If it is determined that the login page should be shown, then the handler function is called.
 // If the user login POST request fails, the handler passed to the adapter is called again,
-// this time with a redirect with http.StatusUnauthorized.
+// this time with an error on the Request's context.
 //
 // The form for the post request should point back to this handler.
-// The form should have three imputs: username, password, and remember.
+// The form should have three inputs: username, password, and remember.
 func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) bool {
 		return !a.userIsAuthenticated(w, r)
 	}
 
+	postHandler := adaptd.Adapt(http.HandlerFunc(a.logUserIn),
+		adaptd.OnCheck(f, http.RedirectHandler(a.RedirectAfterLogin, http.StatusAccepted), "User already logged in"),
+		a.CSRFPostAdapter(a.LoginURL, "CSRF token not valid for log in request"),
+	)
+
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
+			adaptd.EnsureHTTPS(false),
+			PostAndOtherOnError(postHandler, a.RedirectAfterLogin),
+			a.CSRFGetAdapter(),
 			adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, "User requesting login page is logged in", http.StatusAccepted),
-			a.CSRFAdapter(
-				// This is really the post handler wrapped in adapters.
-				RedirectOnError(a.logUserIn, "Authentication failed", http.RedirectHandler(a.LoginURL, http.StatusUnauthorized))(http.RedirectHandler(a.RedirectAfterLogin, http.StatusAccepted)),
-			),
 		}
 
-		return adaptd.Adapt(h, adapters...)
+		return adaptAndAbsorbError(h, adapters...)
 	}
 }
 
@@ -178,11 +183,50 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 		g := func(w http.ResponseWriter, r *http.Request) bool {
 			return !a.logUserOut(w, r)
 		}
+
 		adapters := []adaptd.Adapter{
 			adaptd.CheckAndRedirect(a.userIsAuthenticated, "Requesting logout page, but no user is logged in", redirectOnSuccess, http.StatusFound),
 			adaptd.CheckAndRedirect(g, "User was logged out", redirectOnSuccess, http.StatusFound),
 		}
 		return adaptd.Adapt(h, adapters...)
+	}
+}
+
+// PasswordResetRequestAdapter handles the GET and POST requests for requesting password reset.
+// If the request is GET, the getHandler passed to the Adapter.
+// If the user is logged in, they are allowed to change their password straight away.
+//
+// The form shown to the user in a GET request should have input with name 'email'
+// The POST request should be pointed to the same handler, and the user is sent a link to reset their password.
+//
+// After successful password reset, the user is redirected to redirectOnSuccess.
+// If their is an error, the user is redirected to redirectOnError.
+// TODO: Implement this based on the comments above.
+// TEST
+func (a *HTTPAuth) PasswordResetRequestAdapter(redirectOnSuccess, redirectOnError string) adaptd.Adapter {
+	f := func(w http.ResponseWriter, r *http.Request) bool {
+		_, err := a.passResetHandler.ValidToken(r)
+		return a.userIsAuthenticated(w, r) || err == nil
+	}
+
+	g := func(w http.ResponseWriter, r *http.Request) bool {
+		_, err := a.passResetHandler.ValidHeaderToken(r)
+		return a.userIsAuthenticated(w, r) || err != nil
+	}
+
+	postHandler := adaptd.Adapt(http.HandlerFunc(a.passwordResetRequest),
+		adaptd.CheckAndRedirect(g, redirectOnError, "Password reset token is invalid", http.StatusBadRequest),
+		a.CSRFPostAdapter(redirectOnError, "CSRF token not valid for password reset request"),
+	)
+
+	return func(h http.Handler) http.Handler {
+		adapters := []adaptd.Adapter{
+			adaptd.EnsureHTTPS(false),
+			PostAndOtherOnError(postHandler, redirectOnSuccess),
+			adaptd.CheckAndRedirect(f, redirectOnError, "Invalid password reset query", http.StatusBadRequest),
+		}
+
+		return adaptAndAbsorbError(h, adapters...)
 	}
 }
 
@@ -196,22 +240,44 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 // The POST request should be pointed to the same handler, and the user's password is updated.
 //
 // After successful password reset, the user is redirected to redirectOnSuccess.
+// If their is an error, the user is redirected to redirectOnError.
 func (a *HTTPAuth) PasswordResetAdapter(redirectOnSuccess, redirectOnError string) adaptd.Adapter {
-	f := func(w http.ResponseWriter, r *http.Request) bool {
-		_, err := a.passResetHandler.ValidToken(r)
-		return a.userIsAuthenticated(w, r) || err == nil
+	// A check function that returns true if the user is logged in or the password reset token is valid.
+	f := func(w http.ResponseWriter, r *http.Request) error {
+		username, err := a.passResetHandler.ValidToken(r)
+		u := getUserFromDB(a.db, a.UsersTableName, username)
+		*r = *r.WithContext(NewUserContext(r.Context(), u))
+		if !(a.userIsAuthenticated(w, r) || err == nil) {
+			return errors.New("Password reset not authorized")
+		}
+		return nil
 	}
+
+	// A check function that attaches a password reset token to the header.
+	g := func(w http.ResponseWriter, r *http.Request) error {
+		token := ""
+		u := UserFromContext(r.Context())
+		if u != nil {
+			token = a.passResetHandler.GenerateNewToken(u.Username)
+		}
+		if token == "" {
+			return errors.New("Cannot attach token")
+		}
+		w.Header().Add(passreset.HeaderName, token)
+		return nil
+	}
+
+	postHandler := a.CSRFPostAdapter(redirectOnError, "CSRF token not valid for password reset request")(http.HandlerFunc(a.passwordReset))
 
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			adaptd.CheckAndRedirect(f, redirectOnError, "Invalid password reset query", http.StatusBadRequest),
-			a.CSRFAdapter(
-				// This is really the post handler wrapped in adapters.
-				RedirectOnError(a.passwordReset, "Password reset failed", http.RedirectHandler(redirectOnSuccess, http.StatusInternalServerError))(http.RedirectHandler(redirectOnSuccess, http.StatusAccepted)),
-			),
+			adaptd.EnsureHTTPS(false),
+			PostAndOtherOnError(postHandler, redirectOnSuccess),
+			RedirectOnError(f, http.RedirectHandler(redirectOnError, http.StatusUnauthorized), "Invalid password reset query"),
+			RedirectOnError(g, http.RedirectHandler(redirectOnError, http.StatusInternalServerError), "Error attaching password reset token"),
 		}
 
-		return adaptd.Adapt(h, adapters...)
+		return adaptAndAbsorbError(h, adapters...)
 	}
 }
 
@@ -249,7 +315,6 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	// If the user is authenticated already, then we just redirect
 	if a.userIsAuthenticated(w, r) {
 		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
-		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
 		return
 	}
 	// If the user is not logged in, we check the credentials
@@ -265,13 +330,11 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	if ses != nil {
 		log.Printf("User %v logged in successfully. Redirecting to %v\n", username, a.RedirectAfterLogin)
 		a.sesHandler.AttachCookie(w, ses)
-		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusAccepted)
 		return
 	}
 	log.Println("User login failed, redirecting back to login page")
 	err = errors.New("Login failed")
 	*r = *r.WithContext(NewErrorContext(r.Context(), err))
-	// http.Redirect(w, r, a.LoginURL, http.StatusUnauthorized)
 }
 
 func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
@@ -288,16 +351,33 @@ func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
-	// If the user is authenticated already, then we just redirect
-	if a.userIsAuthenticated(w, r) {
-		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
-		// http.Redirect(w, r, a.RedirectAfterLogin, http.StatusFound)
-		return
-	}
-	// If the user is not logged in, we get the new password
 	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
 
-	username, err := a.passResetHandler.ValidToken(r)
+	username, err := a.passResetHandler.ValidHeaderToken(r)
+	if password != repeatedPassword {
+		err = errors.New("Passwords for reset do not match")
+	}
+	if err != nil {
+		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		return
+	}
+	passHash, err := a.GenerateHashFromPassword([]byte(password))
+	if err != nil {
+		err = errors.New("Error hashing password for database")
+		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		return
+	}
+	err = a.updateUserPassword(username, base64.RawURLEncoding.EncodeToString(passHash))
+	if err != nil {
+		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+	}
+}
+
+// TODO: impletement this to send an email to the user when they request a password reset
+func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
+	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
+
+	username, err := a.passResetHandler.ValidHeaderToken(r)
 	if password != repeatedPassword {
 		err = errors.New("Passwords for reset do not match")
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
@@ -308,7 +388,13 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
-	err = a.updateUserPassword(username)
+	passHash, err := a.GenerateHashFromPassword([]byte(password))
+	if err != nil {
+		err = errors.New("Error hashing password for database")
+		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		return
+	}
+	err = a.updateUserPassword(username, base64.RawURLEncoding.EncodeToString(passHash))
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	}
@@ -341,18 +427,18 @@ func (a *HTTPAuth) getUserPasswordHash(username string) ([]byte, error) {
 	return pwDecoded, tx.Commit()
 }
 
-func (a *HTTPAuth) updateUserPassword(username string) error {
+func (a *HTTPAuth) updateUserPassword(username, passHash string) error {
 	tx, err := a.db.Begin()
 	if err != nil {
 		return errors.New("Failed to connect to database")
 	}
-	_, err = tx.Exec(fmt.Sprintf(updateUserPasswordSQL, a.UsersTableName, username))
+	_, err = tx.Exec(fmt.Sprintf(updateUserPasswordSQL, a.UsersTableName, passHash, username))
 	if err != nil {
 		tx.Rollback()
 		return errors.New("Failed to update user's password")
 	}
 	tx.Commit()
-	log.Printf("%v's password was update successfully\n", username)
+	log.Printf("%v's password was updated successfully\n", username)
 	return nil
 }
 
@@ -362,8 +448,8 @@ func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) b
 	if err != nil {
 		return false
 	}
-	a.sesHandler.AttachCookie(w, ses)
 	user := getUserFromDB(a.db, a.UsersTableName, ses.Username())
+	a.sesHandler.AttachCookie(w, ses)
 	*r = *r.WithContext(NewUserContext(r.Context(), user))
 	return true
 }
