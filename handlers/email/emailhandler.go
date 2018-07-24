@@ -2,7 +2,6 @@ package email
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -22,9 +21,7 @@ type Sender struct {
 	hostname, port, username string
 	// You can include {{.Organization}} in you templates and get the name of the organization in your messages.
 	Organization string
-	// Templates used when sending these email messages
-	PasswordResetTemp, SignUpTemp string
-	auth                          smtp.Auth
+	auth         smtp.Auth
 
 	// A function used to send an individual message.
 	// This should almost never be used. SendMessage should be used instead.
@@ -33,7 +30,7 @@ type Sender struct {
 
 // NewSender returns an email handler for sending messages from a single address.
 func NewSender(organization, hostname, port, username, password string) *Sender {
-	return &Sender{hostname, port, username, organization, "templates/passwordreset.tmpl.html", "templates/signup.tmpl.html", smtpauth.NewLoginAuth(username, password), smtp.SendMail}
+	return &Sender{hostname, port, username, organization, smtpauth.NewLoginAuth(username, password), smtp.SendMail}
 }
 
 // SendMessage sends the message (as an HTML template) to the recipients
@@ -66,23 +63,15 @@ func (e *Sender) SendMessage(tmpl *template.Template, subject string, data map[s
 }
 
 // SendPasswordResetMessage sends a password reset message to the given email address.
-func (e *Sender) SendPasswordResetMessage(receiver Recipient, resetURL string) error {
-	tmpl := template.Must(template.ParseFiles(e.PasswordResetTemp))
-	if tmpl == nil {
-		return errors.New("Cannot find password reset template")
-	}
+func (e *Sender) SendPasswordResetMessage(temp *template.Template, receiver Recipient, resetURL string) error {
 	data := make(map[string]interface{})
 	data["Link"] = resetURL
-	return e.SendMessage(tmpl, "Password Reset", data, receiver)
+	return e.SendMessage(temp, "Password Reset", data, receiver)
 }
 
 // SendSignUpMessage sends a password reset message to the given email address.
-func (e *Sender) SendSignUpMessage(receiver Recipient, resetURL string) error {
-	tmpl := template.Must(template.ParseFiles(e.SignUpTemp))
-	if tmpl == nil {
-		return errors.New("Cannot find sign up template")
-	}
+func (e *Sender) SendSignUpMessage(temp *template.Template, receiver Recipient, resetURL string) error {
 	data := make(map[string]interface{})
 	data["Link"] = resetURL
-	return e.SendMessage(tmpl, "Welcome! One more step", data, receiver)
+	return e.SendMessage(temp, "Welcome! One more step", data, receiver)
 }

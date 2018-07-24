@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/dadamssolutions/adaptd"
 	"github.com/dadamssolutions/authandler/handlers/csrf"
+	"github.com/dadamssolutions/authandler/handlers/email"
 	"github.com/dadamssolutions/authandler/handlers/passreset"
 	"github.com/dadamssolutions/authandler/handlers/session"
 	"github.com/dadamssolutions/authandler/handlers/session/sessions"
@@ -21,7 +23,7 @@ import (
 )
 
 const (
-	updateUserPasswordSQL = "UPDATE %v SET pass_hash = '%v' WHERE username = '%v';"
+	updateUserPasswordSQL = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
 )
 
 func createUsersTable(db *sql.DB, tableName string) error {
@@ -53,58 +55,65 @@ func deleteUsersTestTable(db *sql.DB, tableName string) error {
 // HTTPAuth is a general handler that authenticates a user for http requests.
 // It also handles csrf token generation and validation.
 type HTTPAuth struct {
-	db                       *sql.DB
-	sesHandler               *session.Handler
-	csrfHandler              *csrf.Handler
-	passResetHandler         *passreset.Handler
-	secret                   []byte
-	UsersTableName           string
-	LoginURL                 string
-	LogoutURL                string
-	RedirectAfterLogin       string
-	GenerateHashFromPassword func([]byte) ([]byte, error)
-	CompareHashAndPassword   func([]byte, []byte) error
-}
-
-// NewHTTPAuth takes database information and hash generation and comparative functions
-// and returns a HTTPAuth handler with those specifications.
-// Most callers should user DefaultHTTPAuth instead.
-func NewHTTPAuth(driverName, dbURL, tableName string, sessionTimeout, persistantSessionTimeout time.Duration, g func([]byte) ([]byte, error), c func([]byte, []byte) error, secret []byte) (*HTTPAuth, error) {
-	db, err := sql.Open(driverName, dbURL)
-	if err != nil {
-		// Database connections failed.
-		return nil, errors.New("Database connection failed")
-	}
-	ses, err := session.NewHandlerWithDB(db, "sessions", sessionTimeout, persistantSessionTimeout, secret)
-	if err != nil {
-		// Session handler could not be created, likely a database problem.
-		return nil, errors.New("Session handler could not be created")
-	}
-	csrf := csrf.NewHandler(db, sessionTimeout, secret)
-	if csrf == nil {
-		// CSRF handler could not be created, likely a database problem.
-		return nil, errors.New("CSRF handler could not be created")
-	}
-	prh := passreset.NewHandler(db, sessionTimeout, secret)
-	if prh == nil {
-		// Password reset handler could not be created, likely a database problem.
-		return nil, errors.New("Password reset handler could not be created")
-	}
-	err = createUsersTable(db, tableName)
-	if err != nil {
-		return nil, errors.New("Users database table could not be created")
-	}
-	return &HTTPAuth{db: db, sesHandler: ses, csrfHandler: csrf, passResetHandler: prh, UsersTableName: tableName, GenerateHashFromPassword: g, CompareHashAndPassword: c, LoginURL: "/login", LogoutURL: "/logout", RedirectAfterLogin: "/user"}, nil
+	db                         *sql.DB
+	sesHandler                 *session.Handler
+	csrfHandler                *csrf.Handler
+	passResetHandler           *passreset.Handler
+	emailHandler               *email.Sender
+	secret                     []byte
+	UsersTableName             string
+	LoginURL                   string
+	RedirectAfterLogin         string
+	PasswordResetEmailTemplate *template.Template
+	SignUpEmailTemplate        *template.Template
+	GenerateHashFromPassword   func([]byte) ([]byte, error)
+	CompareHashAndPassword     func([]byte, []byte) error
 }
 
 // DefaultHTTPAuth uses the standard bcyrpt functions for
 // generating and comparing password hashes.
 // cost parameter is the desired cost for bycrypt generated hashes.
-func DefaultHTTPAuth(driverName, dbURL string, sessionTimeout, persistantSessionTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+// The parameters listed are the ones necessary for setting up the handler.
+// All other fields are customizable after creating the handler.
+func DefaultHTTPAuth(db *sql.DB, tableName string, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
 	}
-	return NewHTTPAuth(driverName, dbURL, "users", sessionTimeout, persistantSessionTimeout, g, bcrypt.CompareHashAndPassword, secret)
+	ah := &HTTPAuth{db: db, emailHandler: emailSender, UsersTableName: tableName, secret: secret}
+	// Password hashing functions
+	ah.GenerateHashFromPassword = g
+	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
+	// Sessions handler
+	ah.sesHandler, err = session.NewHandlerWithDB(db, "sessions", sessionTimeout, persistantSessionTimeout, secret)
+	if err != nil {
+		// Session handler could not be created, likely a database problem.
+		return nil, errors.New("Session handler could not be created")
+	}
+	// Cross-site request forgery handler
+	ah.csrfHandler = csrf.NewHandler(db, sessionTimeout, secret)
+	if ah.csrfHandler == nil {
+		// CSRF handler could not be created, likely a database problem.
+		return nil, errors.New("CSRF handler could not be created")
+	}
+	// Password reset token handler.
+	ah.passResetHandler = passreset.NewHandler(db, sessionTimeout, secret)
+	if ah.passResetHandler == nil {
+		// Password reset handler could not be created, likely a database problem.
+		return nil, errors.New("Password reset handler could not be created")
+	}
+	// Create the user database
+	err = createUsersTable(db, tableName)
+	if err != nil {
+		return nil, errors.New("Users database table could not be created")
+	}
+	// Important redirecting URLs
+	ah.LoginURL = "/login"
+	ah.RedirectAfterLogin = "/users"
+	// Email templates
+	ah.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))
+	ah.SignUpEmailTemplate = template.Must(template.ParseFiles("templates/signup.tmpl.html"))
+	return ah, nil
 }
 
 // RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
@@ -194,36 +203,27 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 
 // PasswordResetRequestAdapter handles the GET and POST requests for requesting password reset.
 // If the request is GET, the getHandler passed to the Adapter.
-// If the user is logged in, they are allowed to change their password straight away.
 //
-// The form shown to the user in a GET request should have input with name 'email'
+// The form shown to the user in a GET request should have an input with name 'email'
 // The POST request should be pointed to the same handler, and the user is sent a link to reset their password.
+//
+// When a POST request is received, the database is checked for the existing user. If the user exists,
+// and email is send to the user. You can include {{.link}} in the template to include the password reset link.
+//
+// If a user with the supplied email does not exists, then the handler passed to the Adapter is called
+// with the appropriate error on the Request's context.
 //
 // After successful password reset, the user is redirected to redirectOnSuccess.
 // If their is an error, the user is redirected to redirectOnError.
-// TODO: Implement this based on the comments above.
-// TEST
 func (a *HTTPAuth) PasswordResetRequestAdapter(redirectOnSuccess, redirectOnError string) adaptd.Adapter {
-	f := func(w http.ResponseWriter, r *http.Request) bool {
-		_, err := a.passResetHandler.ValidToken(r)
-		return a.userIsAuthenticated(w, r) || err == nil
-	}
 
-	g := func(w http.ResponseWriter, r *http.Request) bool {
-		_, err := a.passResetHandler.ValidHeaderToken(r)
-		return a.userIsAuthenticated(w, r) || err != nil
-	}
-
-	postHandler := adaptd.Adapt(http.HandlerFunc(a.passwordResetRequest),
-		adaptd.CheckAndRedirect(g, redirectOnError, "Password reset token is invalid", http.StatusBadRequest),
-		a.CSRFPostAdapter(redirectOnError, "CSRF token not valid for password reset request"),
-	)
+	postHandler := a.CSRFPostAdapter(redirectOnError, "CSRF token not valid for password reset request")(http.HandlerFunc(a.passwordResetRequest))
 
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
 			PostAndOtherOnError(postHandler, redirectOnSuccess),
-			adaptd.CheckAndRedirect(f, redirectOnError, "Invalid password reset query", http.StatusBadRequest),
+			a.CSRFGetAdapter(),
 		}
 
 		return adaptAndAbsorbError(h, adapters...)
@@ -245,7 +245,7 @@ func (a *HTTPAuth) PasswordResetAdapter(redirectOnSuccess, redirectOnError strin
 	// A check function that returns true if the user is logged in or the password reset token is valid.
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		username, err := a.passResetHandler.ValidToken(r)
-		u := getUserFromDB(a.db, a.UsersTableName, username)
+		u := getUserFromDB(a.db, a.UsersTableName, "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if !(a.userIsAuthenticated(w, r) || err == nil) {
 			return errors.New("Password reset not authorized")
@@ -297,7 +297,7 @@ func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 		return user
 	}
 	// If there is a cookie, then for simplicity, we add the user to the Request's context.
-	user = getUserFromDB(a.db, a.UsersTableName, ses.Username())
+	user = getUserFromDB(a.db, a.UsersTableName, "username", ses.Username())
 	if user != nil {
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
@@ -373,28 +373,19 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// TODO: impletement this to send an email to the user when they request a password reset
 func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
-	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
+	email := url.QueryEscape(r.PostFormValue("email"))
 
-	username, err := a.passResetHandler.ValidHeaderToken(r)
-	if password != repeatedPassword {
-		err = errors.New("Passwords for reset do not match")
-		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+	user := getUserFromDB(a.db, a.UsersTableName, "email", email)
+	if user == nil {
+		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("User with email %v does not exist", email)))
 		return
 	}
-	if err != nil {
-		err = errors.New("Password reset token not valid")
-		*r = *r.WithContext(NewErrorContext(r.Context(), err))
-		return
-	}
-	passHash, err := a.GenerateHashFromPassword([]byte(password))
-	if err != nil {
-		err = errors.New("Error hashing password for database")
-		*r = *r.WithContext(NewErrorContext(r.Context(), err))
-		return
-	}
-	err = a.updateUserPassword(username, base64.RawURLEncoding.EncodeToString(passHash))
+	pwResetLink := a.passResetHandler.GenerateNewToken(user.Username)
+
+	data := make(map[string]interface{})
+	data["Link"] = pwResetLink
+	err := a.emailHandler.SendMessage(a.PasswordResetEmailTemplate, "Password Reset Request", data, user)
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	}
@@ -448,7 +439,7 @@ func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) b
 	if err != nil {
 		return false
 	}
-	user := getUserFromDB(a.db, a.UsersTableName, ses.Username())
+	user := getUserFromDB(a.db, a.UsersTableName, "username", ses.Username())
 	a.sesHandler.AttachCookie(w, ses)
 	*r = *r.WithContext(NewUserContext(r.Context(), user))
 	return true

@@ -2,11 +2,16 @@ package authandler
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strings"
@@ -14,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authandler/handlers/csrf"
+	"github.com/dadamssolutions/authandler/handlers/email"
 	"github.com/dadamssolutions/authandler/handlers/passreset"
 )
 
@@ -38,6 +44,7 @@ func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println(err)
 		num *= 10
+		w.WriteHeader(http.StatusUnauthorized)
 	}
 	w.Write([]byte("Test handler"))
 }
@@ -47,7 +54,7 @@ func addUserToDatabase() {
 	pass := strings.Repeat("d", 64)
 	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
 	tx, _ := a.db.Begin()
-	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
+	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test%40gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
 	tx.Commit()
 }
 
@@ -137,7 +144,7 @@ func TestCurrentUserGoodCookie(t *testing.T) {
 func TestCurrentUserFromContext(t *testing.T) {
 	addUserToDatabase()
 
-	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", Email: "test@gmail.com"}
+	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", email: "test%40gmail.com"}
 	ses, _ := a.sesHandler.CreateSession(user.Username, false)
 	req, _ := http.NewRequest("GET", "/", nil)
 	req = req.WithContext(NewUserContext(req.Context(), user))
@@ -189,22 +196,22 @@ func TestIsCurrentUser(t *testing.T) {
 }
 
 func TestGetUserPasswordHash(t *testing.T) {
-	passHash, err := a.GenerateHashFromPassword([]byte(strings.Repeat("d", 64)))
-	tx, _ := a.db.Begin()
-	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
-	tx.Commit()
+	addUserToDatabase()
+
 	b, err := a.getUserPasswordHash("nadams")
 	if b != nil || err == nil {
 		t.Error("User not in database returned a valid password hash")
 	}
 
 	b, err = a.getUserPasswordHash("dadams")
-	if b == nil || err != nil || !bytes.Equal(b, passHash) {
+	err = a.CompareHashAndPassword(b, []byte(strings.Repeat("d", 64)))
+	if b == nil || err != nil {
+		log.Println(b)
+		log.Println(err)
 		t.Error("User in database returned an invalid password hash")
 	}
-	tx, _ = a.db.Begin()
-	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
-	tx.Commit()
+
+	removeUserFromDatabase()
 }
 
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
@@ -319,7 +326,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 
 	// POST request should not log user in with wrong password
 	resp, _ := client.Do(req)
-	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 0 || num != 10 {
+	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 10 {
 		log.Println(resp.Status)
 		log.Println(num)
 		log.Println(resp.Location())
@@ -332,7 +339,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
 	// POST request should not log user in
 	resp, _ = client.Do(req)
-	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) != 0 || num != 110 {
+	if resp.StatusCode != http.StatusUnauthorized || len(resp.Cookies()) != 0 || num != 110 {
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
@@ -663,10 +670,109 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 	removeUserFromDatabase()
 }
 
+func TestPasswordResetRequest(t *testing.T) {
+	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
+
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK || resp.Header.Get(csrf.HeaderName) == "" {
+		t.Error("Valid password request returned unexpected response")
+	}
+}
+
+func TestSendPasswordResetEmail(t *testing.T) {
+	addUserToDatabase()
+
+	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("email", "test@gmail.com")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusAccepted || redirectURL.Path != "/login" {
+		t.Error("Password email not sent properly")
+	}
+}
+
+func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
+	addUserToDatabase()
+
+	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("email", "test@gmail.com")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL.Path != "/error" {
+		t.Error("Password reset email was sent without CSRF verification")
+	}
+}
+
+func TestSendPasswordResetEmailBadEmail(t *testing.T) {
+	addUserToDatabase()
+
+	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter("/login", "/error")(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("email", "test@outlook.com")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL != nil {
+		t.Error("Password email not sent properly")
+	}
+}
+
+// A Test send mail function so actual emails are not sent
+func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []byte) error {
+	if len(to) > 1 {
+		return errors.New("Message should only be sent to one address")
+	}
+	message, err := mail.ReadMessage(bytes.NewReader(msg))
+	if err != nil {
+		return err
+	}
+	body, err := ioutil.ReadAll(message.Body)
+	if err != nil {
+		return err
+	}
+	if message.Header.Get("Content-Type") == "" || message.Header.Get("To") != to[0] || message.Header.Get("From") != from || len(body) == 0 {
+		return errors.New("Message was not constructed properly")
+	}
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	var err error
-	a, err = DefaultHTTPAuth("postgres", "user=test dbname=house-pts-test sslmode=disable", time.Second, 2*time.Second, 10, bytes.Repeat([]byte("d"), 16))
+	db, err := sql.Open("postgres", "user=test dbname=house-pts-test sslmode=disable")
+	eh := email.NewSender("House Points Test", hostname, "587", testEmail1, password)
+	eh.SendMail = SendMail
+	a, err = DefaultHTTPAuth(db, "users", eh, time.Second, 2*time.Second, 10, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Panic(err)
 	}
