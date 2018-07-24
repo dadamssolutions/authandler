@@ -54,7 +54,7 @@ func addUserToDatabase() {
 	pass := strings.Repeat("d", 64)
 	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
 	tx, _ := a.db.Begin()
-	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test%40gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
+	tx.Exec("INSERT INTO users (username, email, pass_hash) VALUES ('dadams', 'test@gmail.com', '" + base64.RawURLEncoding.EncodeToString(passHash) + "');")
 	tx.Commit()
 }
 
@@ -733,9 +733,15 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
+	testCases := []url.Values{
+		url.Values{"test": []string{"test@outlook.com"}},
+		url.Values{"test": []string{"first last@outlook.com"}},
+		url.Values{"test": []string{"test@google mail.com"}},
+		url.Values{"test": []string{"test@outlook\n--.com"}},
+		url.Values{"test": []string{"test@out -- look.com"}},
+	}
 
-	form := url.Values{}
-	form.Set("email", "test@outlook.com")
+	form := url.Values{"test": []string{"test@outlook.com"}}
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
@@ -745,6 +751,19 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 	redirectURL, _ := resp.Location()
 	if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL != nil {
 		t.Error("Password email not sent properly")
+	}
+
+	for _, f := range testCases {
+
+		req, _ = http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(f.Encode()))
+		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+		req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+
+		resp, err = client.Do(req)
+		redirectURL, _ = resp.Location()
+		if err != nil || resp.StatusCode != http.StatusUnauthorized || redirectURL != nil {
+			t.Error("Password email not sent properly")
+		}
 	}
 }
 

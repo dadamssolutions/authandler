@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"time"
@@ -374,18 +375,22 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
-	email := url.QueryEscape(r.PostFormValue("email"))
+	addr, err := mail.ParseAddress(r.PostFormValue("email"))
+	if err != nil {
+		*r = *r.WithContext(NewErrorContext(r.Context(), errors.New("Email address was not a valid address")))
+		return
+	}
 
-	user := getUserFromDB(a.db, a.UsersTableName, "email", email)
+	user := getUserFromDB(a.db, a.UsersTableName, "email", addr.Address)
 	if user == nil {
-		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("User with email %v does not exist", email)))
+		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("User with email %v does not exist", addr.Address)))
 		return
 	}
 	pwResetLink := a.passResetHandler.GenerateNewToken(user.Username)
 
 	data := make(map[string]interface{})
 	data["Link"] = pwResetLink
-	err := a.emailHandler.SendMessage(a.PasswordResetEmailTemplate, "Password Reset Request", data, user)
+	err = a.emailHandler.SendMessage(a.PasswordResetEmailTemplate, "Password Reset Request", data, user)
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	}
