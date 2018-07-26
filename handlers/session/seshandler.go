@@ -136,7 +136,6 @@ func (sh *Handler) ParseSessionFromRequest(r *http.Request) (*sessions.Session, 
 	cookie, err := r.Cookie(SessionCookieName)
 	// No session cookie available
 	if err != nil {
-		log.Println(err)
 		return nil, noSessionCookieFoundInRequest(sh.dataAccess.tableName)
 	}
 	session, err := sh.ParseSessionCookie(cookie)
@@ -153,7 +152,6 @@ func (sh *Handler) ParseSessionCookie(cookie *http.Cookie) (*sessions.Session, e
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
 	if err != nil || cookie.Name != SessionCookieName || len(cookieStrings) != 3 {
-		log.Printf("Not a valid %v cookie\n", sh.dataAccess.tableName)
 		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 
