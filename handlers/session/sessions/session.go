@@ -9,6 +9,7 @@ This package should be not be uses without seshandler which manages sessions for
 package sessions
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"sync"
@@ -155,6 +156,32 @@ func (s *Session) IsValid() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return !s.IsDestroyed() && !s.IsExpired()
+}
+
+// IsUserLoggedIn returns true if the user is logged in
+func (s *Session) IsUserLoggedIn() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.values["username"][0] != ""
+}
+
+// LogUserIn logs a user into a session.
+// It returns a non-nil error if there is already a user logged into that session.
+func (s *Session) LogUserIn(username string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.values["username"][0] != "" && s.values["username"][0] != username {
+		return errors.New("Trying to log a user into a session that already has a user")
+	}
+	s.values["username"][0] = username
+	return nil
+}
+
+// LogUserOut logs a user out of a session.
+func (s *Session) LogUserOut() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.values["username"][0] = ""
 }
 
 // Equals returns whether other session is equal to this session

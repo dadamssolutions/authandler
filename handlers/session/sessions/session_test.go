@@ -3,6 +3,7 @@ package sessions
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"log"
 	"net/url"
 	"strings"
 	"testing"
@@ -133,6 +134,25 @@ func TestReadFlashes(t *testing.T) {
 	msgs, errs := ses.Flashes()
 	if len(ses.values[msgKey]) != 0 || len(ses.values[errorKey]) != 0 || len(errs) != 2 || len(msgs) != 1 || errs[1] != "Error2" || msgs[0] != "Message" {
 		t.Error("Flashes not returned and removed")
+	}
+}
+
+func TestLogUserIn(t *testing.T) {
+	ses := NewSession("", "", "", "", sessionCookieName, timeout)
+	if ses.IsUserLoggedIn() {
+		t.Error("A user should not be logged in for a session created with no username")
+	}
+
+	err := ses.LogUserIn("dadams")
+	if err != nil || !ses.IsUserLoggedIn() {
+		log.Println(err)
+		log.Println(ses.Username())
+		t.Error("A user should be logged in after call")
+	}
+
+	ses.LogUserOut()
+	if ses.IsUserLoggedIn() {
+		t.Error("A user should not be logged in after log out call")
 	}
 }
 
