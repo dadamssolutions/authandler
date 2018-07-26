@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/dadamssolutions/authandler/handlers/csrf"
 )
 
 func TestSignUp(t *testing.T) {
@@ -19,7 +17,7 @@ func TestSignUp(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK || resp.Header.Get(csrf.HeaderName) == "" {
+	if err != nil || resp.StatusCode != http.StatusOK || resp.Cookies()[0].Value == "" {
 		t.Error("Valid password request returned unexpected response")
 	}
 }
@@ -29,6 +27,7 @@ func TestSignUpPost(t *testing.T) {
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
+	w := httptest.NewRecorder()
 
 	form := url.Values{}
 	form.Set("username", "dadams")
@@ -40,7 +39,8 @@ func TestSignUpPost(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -71,12 +71,14 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 	}
 
 	for _, v := range testCases {
+		w := httptest.NewRecorder()
 
 		f := url.Values{"firstName": []string{v.firstName}, "lastName": []string{v.lastName}, "username": []string{v.username}, "email": []string{v.email}, "password": []string{v.password}, "repeatedPassword": []string{v.repeatedPassword}}
 
 		req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(f.Encode()))
 		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-		req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+		a.csrfHandler.GenerateNewToken(w)
+		req.AddCookie(w.Result().Cookies()[0])
 
 		resp, err := client.Do(req)
 		loc, _ := resp.Location()
@@ -95,8 +97,8 @@ func TestUserValidation(t *testing.T) {
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
-	passQuery := a.passResetHandler.GenerateNewToken("dadams")
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"?"+passQuery, nil)
+	token := a.passResetHandler.GenerateNewToken("dadams")
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"?"+token.Query(), nil)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Error("User not validated correctly")
@@ -145,8 +147,8 @@ func TestUserValidationBadQuery(t *testing.T) {
 	client.CheckRedirect = checkRedirect
 
 	// Don't include the reset query
-	passQuery := a.passResetHandler.GenerateNewToken("dadams")
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"?"+passQuery[1:], nil)
+	token := a.passResetHandler.GenerateNewToken("dadams")
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"?"+token.Query()[1:], nil)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Error("User validated without reset query")

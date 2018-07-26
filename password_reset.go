@@ -55,17 +55,17 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 		return nil
 	}
 
-	// A check function that attaches a password reset token to the header.
+	// A check function that attaches a password reset token as a cookie.
 	g := func(w http.ResponseWriter, r *http.Request) error {
-		token := ""
+		var ses *passreset.Token
 		u := UserFromContext(r.Context())
 		if u != nil {
-			token = a.passResetHandler.GenerateNewToken(u.Username)
+			ses = a.passResetHandler.GenerateNewToken(u.Username)
 		}
-		if token == "" {
+		if ses == nil {
 			return errors.New("Cannot attach token")
 		}
-		w.Header().Add(passreset.HeaderName, token)
+
 		return nil
 	}
 
@@ -114,10 +114,10 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailDoesNotExist)))
 		return
 	}
-	pwResetLink := a.passResetHandler.GenerateNewToken(user.Username)
+	token := a.passResetHandler.GenerateNewToken(user.Username)
 
 	data := make(map[string]interface{})
-	data["Link"] = a.domainName + a.PasswordResetURL + pwResetLink
+	data["Link"] = a.domainName + a.PasswordResetURL + token.Query()
 	err = a.emailHandler.SendMessage(a.PasswordResetEmailTemplate, "Password Reset Request", data, user)
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))

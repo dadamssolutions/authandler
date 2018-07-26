@@ -16,17 +16,17 @@ var db, err = sql.Open("postgres", "user=test dbname=house-pts-test sslmode=disa
 
 func TestTokenGeneration(t *testing.T) {
 	token := passHand.GenerateNewToken("dadams")
-	if token == "" {
+	if token == nil {
 		t.Error("Could not generate a new token")
 	}
 	// Create a request so we can validate the token which destroys it as well
-	req := httptest.NewRequest(http.MethodGet, "/?"+queryName+"="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, "/?"+token.Query(), nil)
 	passHand.ValidToken(req)
 }
 
 func TestTokenValidation(t *testing.T) {
-	queryString := passHand.GenerateNewToken("dadams")
-	req := httptest.NewRequest(http.MethodGet, "/?"+queryString, nil)
+	token := passHand.GenerateNewToken("dadams")
+	req := httptest.NewRequest(http.MethodGet, "/?"+token.Query(), nil)
 	if username, err := passHand.ValidToken(req); err != nil || username != "dadams" {
 		t.Error("Token should be valid right after it is created")
 	}

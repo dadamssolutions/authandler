@@ -8,9 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/dadamssolutions/authandler/handlers/csrf"
-	"github.com/dadamssolutions/authandler/handlers/passreset"
 )
 
 func TestPasswordResetNoQuery(t *testing.T) {
@@ -61,12 +58,12 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 func TestPasswordResetValidQuery(t *testing.T) {
 	addTestUserToDatabase(true)
 
-	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
+	token := a.passResetHandler.GenerateNewToken("dadams")
 	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
-	req, _ := http.NewRequest("GET", ts.URL+"?"+passResetQuery, nil)
+	req, _ := http.NewRequest("GET", ts.URL+"?"+token.Query(), nil)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		log.Println(err)
@@ -86,8 +83,9 @@ func TestPasswordResetValidQuery(t *testing.T) {
 
 func TestPasswordResetForm(t *testing.T) {
 	addTestUserToDatabase(true)
+	w := httptest.NewRecorder()
 
-	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
+	token := a.passResetHandler.GenerateNewToken("dadams")
 	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
 	defer ts.Close()
 	client := ts.Client()
@@ -99,8 +97,9 @@ func TestPasswordResetForm(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(passreset.HeaderName, passResetQuery)
-	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+	req.AddCookie(token.SessionCookie())
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -122,7 +121,7 @@ func TestPasswordResetForm(t *testing.T) {
 func TestPasswordResetNoCSRF(t *testing.T) {
 	addTestUserToDatabase(true)
 
-	passResetQuery := a.passResetHandler.GenerateNewToken("dadams")
+	token := a.passResetHandler.GenerateNewToken("dadams")
 	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
 	defer ts.Close()
 	client := ts.Client()
@@ -134,7 +133,7 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(passreset.HeaderName, passResetQuery)
+	req.AddCookie(token.SessionCookie())
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -155,6 +154,7 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 
 func TestPasswordResetNoPasswordToken(t *testing.T) {
 	addTestUserToDatabase(true)
+	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
 	defer ts.Close()
@@ -167,7 +167,8 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -194,16 +195,16 @@ func TestPasswordResetRequest(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK || resp.Header.Get(csrf.HeaderName) == "" {
+	if err != nil || resp.StatusCode != http.StatusOK || resp.Cookies()[0].Value == "" {
 		log.Println(err)
 		log.Println(resp.Status)
-		log.Println(resp.Header.Get(csrf.HeaderName))
 		t.Error("Valid password request returned unexpected response")
 	}
 }
 
 func TestSendPasswordResetEmail(t *testing.T) {
 	addTestUserToDatabase(true)
+	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter()(testHand))
 	defer ts.Close()
@@ -215,7 +216,8 @@ func TestSendPasswordResetEmail(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -265,10 +267,11 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 	}
 
 	for _, f := range testCases {
-
+		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(f.Encode()))
 		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-		req.Header.Set(csrf.HeaderName, a.csrfHandler.GenerateNewToken())
+		a.csrfHandler.GenerateNewToken(w)
+		req.AddCookie(w.Result().Cookies()[0])
 
 		resp, err := client.Do(req)
 		redirectURL, _ := resp.Location()

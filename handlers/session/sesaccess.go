@@ -33,15 +33,16 @@ const (
 
 type sesDataAccess struct {
 	*sql.DB
-	tableName string
-	secret    []byte
-	cipher    cipher.Block
-	lock      *sync.RWMutex
+	tableName  string
+	cookieName string
+	secret     []byte
+	cipher     cipher.Block
+	lock       *sync.RWMutex
 }
 
-func newDataAccess(db *sql.DB, tableName string, secret []byte, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
+func newDataAccess(db *sql.DB, tableName, cookieName string, secret []byte, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
 	var err error
-	sesAccess := sesDataAccess{db, tableName, nil, nil, &sync.RWMutex{}}
+	sesAccess := sesDataAccess{db, tableName, cookieName, nil, nil, &sync.RWMutex{}}
 	if sesAccess.DB == nil {
 		log.Println("Cannot connect to the database")
 		return sesAccess, badDatabaseConnectionError()
@@ -179,7 +180,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 		if err != nil {
 			return nil, err
 		}
-		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), SessionCookieName, maxLifetime)
+		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), s.cookieName, maxLifetime)
 		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
@@ -226,9 +227,9 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID, encryptedUsername s
 	}
 	// If the session is persistant, then we set the expiration to maxLifetime
 	if persistant {
-		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, SessionCookieName, maxLifetime)
+		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, s.cookieName, maxLifetime)
 	} else {
-		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, SessionCookieName, 0)
+		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, s.cookieName, 0)
 	}
 	return ses, err
 }

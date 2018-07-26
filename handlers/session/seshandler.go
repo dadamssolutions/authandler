@@ -30,9 +30,8 @@ import (
 
 // These are made constants because the database should be cleared and updated if they change.
 const (
-	SessionCookieName = "sessionID"
-	selectorIDLength  = 16
-	sessionIDLength   = 64
+	selectorIDLength = 16
+	sessionIDLength  = 64
 )
 
 // Handler creates and maintains session in a database.
@@ -45,8 +44,8 @@ type Handler struct {
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If either timeout <= 0, then it is set to 0 (session only cookies).
-func NewHandlerWithDB(db *sql.DB, tableName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration, secret []byte) (*Handler, error) {
-	da, err := newDataAccess(db, tableName, secret, sessionTimeout, persistantSessionTimeout)
+func NewHandlerWithDB(db *sql.DB, tableName, cookieName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration, secret []byte) (*Handler, error) {
+	da, err := newDataAccess(db, tableName, cookieName, secret, sessionTimeout, persistantSessionTimeout)
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -133,7 +132,7 @@ func (sh *Handler) UpdateSessionIfValid(ses *sessions.Session) (*sessions.Sessio
 // ParseSessionFromRequest takes a request, determines if there is a valid session cookie,
 // and returns the session, if it exists.
 func (sh *Handler) ParseSessionFromRequest(r *http.Request) (*sessions.Session, error) {
-	cookie, err := r.Cookie(SessionCookieName)
+	cookie, err := r.Cookie(sh.dataAccess.cookieName)
 	// No session cookie available
 	if err != nil {
 		return nil, noSessionCookieFoundInRequest(sh.dataAccess.tableName)
@@ -151,7 +150,7 @@ func (sh *Handler) ParseSessionCookie(cookie *http.Cookie) (*sessions.Session, e
 	// Break the cookie into its parts.
 	unescapedCookie, err := url.QueryUnescape(cookie.Value)
 	cookieStrings := strings.Split(unescapedCookie, "|")
-	if err != nil || cookie.Name != SessionCookieName || len(cookieStrings) != 3 {
+	if err != nil || cookie.Name != sh.dataAccess.cookieName || len(cookieStrings) != 3 {
 		return nil, invalidSessionCookie(sh.dataAccess.tableName)
 	}
 

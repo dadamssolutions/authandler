@@ -89,7 +89,7 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 	ah.GenerateHashFromPassword = g
 	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
 	// Sessions handler
-	ah.sesHandler, err = session.NewHandlerWithDB(db, "sessions", sessionTimeout, persistantSessionTimeout, secret)
+	ah.sesHandler, err = session.NewHandlerWithDB(db, "sessions", "sessionID", sessionTimeout, persistantSessionTimeout, secret)
 	if err != nil {
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")
@@ -188,7 +188,7 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
-			adaptd.AddHeaderWithFunc(csrf.HeaderName, a.csrfHandler.GenerateNewToken),
+			adaptd.AddCookieWithFunc(csrf.CookieName, a.csrfHandler.GenerateNewToken),
 		}
 
 		return adaptd.Adapt(h, adapters...)

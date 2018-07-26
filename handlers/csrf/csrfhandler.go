@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// HeaderName is the key value for the header attached to HTTP responses
-	HeaderName = "X-CSRF"
+	// CookieName is the key value for the header attached to HTTP responses
+	CookieName = "X-CSRF"
 )
 
 // Handler handles Cross-site request forgery tokens
@@ -22,7 +22,7 @@ type Handler struct {
 
 // NewHandler creates a new handler using the database pointer.
 func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
-	sh, err := session.NewHandlerWithDB(db, "csrfs", timeout, timeout, secret)
+	sh, err := session.NewHandlerWithDB(db, "csrfs", CookieName, timeout, timeout, secret)
 	if err != nil {
 		log.Println("There was a problem creating the CSRF handler")
 		log.Println(err)
@@ -32,21 +32,21 @@ func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
 }
 
 // GenerateNewToken generates a new token for protecting against CSRF
-func (c *Handler) GenerateNewToken() string {
+func (c *Handler) GenerateNewToken(w http.ResponseWriter) error {
 	ses, err := c.CreateSession("csrf", false)
 	if err != nil {
 		log.Println("Error creating a new CSRF token")
-		return ""
+		return err
 	}
-	return ses.CookieValue()
+	_, err = c.AttachCookie(w, ses)
+	return err
 }
 
 // ValidToken verifies that a CSRF token is valid and then destroys it
 func (c *Handler) ValidToken(r *http.Request) error {
-	token := r.Header.Get(HeaderName)
-	ses, err := c.ParseSessionCookie(&http.Cookie{Name: session.SessionCookieName, Value: token})
+	ses, err := c.ParseSessionFromRequest(r)
 	if err != nil {
-		err = fmt.Errorf("CSRF token %v was not valid", token)
+		err = fmt.Errorf("CSRF token was not valid")
 		log.Println(err)
 		return err
 	}
