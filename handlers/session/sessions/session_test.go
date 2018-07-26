@@ -109,6 +109,33 @@ func TestUpdateSessionExpiredTime(t *testing.T) {
 	}
 }
 
+func TestAddFlashes(t *testing.T) {
+	ses := NewSession("", "", "", "", sessionCookieName, timeout)
+	ses.AddError("Error")
+	ses.AddMessage("Message")
+
+	if ses.values[errorKey][0] != "Error" || ses.values[msgKey][0] != "Message" {
+		t.Error("Flash messages are not correct")
+	}
+
+	ses.AddError("Error2")
+	if len(ses.values[errorKey]) != 2 || ses.values[errorKey][1] != "Error2" {
+		t.Error("Second error not added properly")
+	}
+}
+
+func TestReadFlashes(t *testing.T) {
+	ses := NewSession("", "", "", "", sessionCookieName, timeout)
+	ses.AddError("Error")
+	ses.AddMessage("Message")
+	ses.AddError("Error2")
+
+	msgs, errs := ses.Flashes()
+	if len(ses.values[msgKey]) != 0 || len(ses.values[errorKey]) != 0 || len(errs) != 2 || len(msgs) != 1 || errs[1] != "Error2" || msgs[0] != "Message" {
+		t.Error("Flashes not returned and removed")
+	}
+}
+
 func TestSessionCookie(t *testing.T) {
 	ses := NewSession(strings.Repeat("d", selectorIDLength), strings.Repeat("d", sessionIDLength), strings.Repeat("d", 12), "thedadams", sessionCookieName, timeout)
 	cookie := ses.SessionCookie()

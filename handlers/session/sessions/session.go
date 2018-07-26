@@ -15,24 +15,32 @@ import (
 	"time"
 )
 
+const (
+	errorKey = "errors"
+	msgKey   = "messages"
+)
+
 // Session type represents an HTTP session.
 type Session struct {
 	cookie            *http.Cookie
 	selectorID        string
 	sessionID         string
-	username          string
 	encryptedUsername string
 	persistant        bool
 	destroyed         bool
+	values            map[string][]string
 
 	lock *sync.RWMutex
 }
 
 // NewSession creates a new session with the given information
 func NewSession(selectorID, sessionID, username, encryptedUsername, sessionCookieName string, maxLifetime time.Duration) *Session {
-	s := &Session{selectorID: selectorID, sessionID: sessionID, username: username, encryptedUsername: encryptedUsername, lock: &sync.RWMutex{}}
+	s := &Session{selectorID: selectorID, sessionID: sessionID, encryptedUsername: encryptedUsername, values: make(map[string][]string), lock: &sync.RWMutex{}}
 	c := &http.Cookie{Name: sessionCookieName, Value: s.CookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime.Seconds())}
 	s.cookie = c
+	s.values["username"] = []string{username}
+	s.values["errors"] = make([]string, 0)
+	s.values["messages"] = make([]string, 0)
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
 		s.persistant = true
@@ -61,7 +69,7 @@ func (s *Session) CookieValue() string {
 func (s *Session) HashPayload() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.username + s.sessionID
+	return s.values["username"][0] + s.sessionID
 }
 
 // SelectorID returns the session's selector ID
@@ -82,7 +90,7 @@ func (s *Session) SessionID() string {
 func (s *Session) Username() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.username
+	return s.values["username"][0]
 }
 
 // EncryptedUsername returns the username of the account to which the session is associated.
@@ -156,4 +164,31 @@ func (s *Session) Equals(other *Session, hash func(string) string) bool {
 	defer s.lock.RUnlock()
 	defer other.lock.RUnlock()
 	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed() && s.IsPersistant() == other.IsPersistant() && hash(s.HashPayload()) == hash(other.HashPayload())
+}
+
+// AddError adds an error to the session flashes
+func (s *Session) AddError(err string) {
+	s.addToFlashes(errorKey, err)
+}
+
+// AddMessage adds an error to the session flashes
+func (s *Session) AddMessage(msg string) {
+	s.addToFlashes(msgKey, msg)
+}
+
+// Flashes gets and deletes the flash messages.
+func (s *Session) Flashes() ([]string, []string) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	defer func() {
+		s.values[errorKey] = s.values[errorKey][:0]
+		s.values[msgKey] = s.values[msgKey][:0]
+	}()
+	return s.values[msgKey], s.values[errorKey]
+}
+
+func (s *Session) addToFlashes(key, val string) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.values[key] = append(s.values[key], val)
 }
