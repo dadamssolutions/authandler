@@ -55,7 +55,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	// POST request should log user in
 	resp, err := client.Do(req)
 	loc, _ := resp.Location()
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted || loc.Path != a.RedirectAfterLogin {
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther || loc.Path != a.RedirectAfterLogin {
 		log.Println(err)
 		log.Println(len(resp.Cookies()))
 		log.Println(resp.Status)
@@ -77,7 +77,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 		log.Println(len(resp.Cookies()))
 		t.Error("Request should be redirected when user is logged in")
 	}
-	if resp.StatusCode != http.StatusAccepted {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Error("Login GET request with user logged in should redirect")
 	}
 
@@ -170,7 +170,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 
 	// POST request should log user in
 	resp, err := client.Do(req)
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther {
 		t.Error("Should be redirected after a successful login")
 	}
 
@@ -219,7 +219,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 
 	// POST request should log user in
 	resp, err := client.Do(req)
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusAccepted {
+	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther {
 		t.Error("Should be redirected after a successful login")
 	}
 
