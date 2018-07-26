@@ -39,7 +39,7 @@ func RedirectOnError(f func(http.ResponseWriter, *http.Request) error, fh http.H
 //
 // This is useful for a POST request that tries to log a user in and calls a GET handler on error.
 // The GET handler can then look at the error on the Request's context.
-func PostAndOtherOnError(postHandler http.Handler, redirectOnSuccess string) adaptd.Adapter {
+func PostAndOtherOnError(postHandler http.Handler, redirectOnSuccess, redirectOnError string) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {
@@ -52,6 +52,7 @@ func PostAndOtherOnError(postHandler http.Handler, redirectOnSuccess string) ada
 					http.Redirect(w, r, redirectOnSuccess, http.StatusAccepted)
 					return
 				}
+				http.Redirect(w, r, redirectOnError, http.StatusSeeOther)
 			}
 			h.ServeHTTP(w, r)
 		})

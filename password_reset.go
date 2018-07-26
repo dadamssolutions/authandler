@@ -29,7 +29,7 @@ func (a *HTTPAuth) PasswordResetRequestAdapter() adaptd.Adapter {
 
 	postHandler := a.CSRFPostAdapter(a.PasswordResetURL, "CSRF token not valid for password reset request")(http.HandlerFunc(a.passwordResetRequest))
 
-	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterResetRequest)
+	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterResetRequest, a.PasswordResetRequestURL)
 }
 
 // PasswordResetAdapter handles the GET and POST requests for reseting the password.
@@ -72,11 +72,11 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 	postHandler := a.CSRFPostAdapter(a.PasswordResetURL, "CSRF token not valid for password reset request")(http.HandlerFunc(a.passwordReset))
 
 	adapters := []adaptd.Adapter{
-		RedirectOnError(f, http.RedirectHandler(a.PasswordResetURL, http.StatusUnauthorized), "Invalid password reset query"),
+		RedirectOnError(f, http.RedirectHandler(a.PasswordResetURL, http.StatusSeeOther), "Invalid password reset query"),
 		RedirectOnError(g, http.RedirectHandler(a.PasswordResetURL, http.StatusInternalServerError), "Error attaching password reset token"),
 	}
 
-	return a.standardPostAndGetAdapter(postHandler, a.LoginURL, adapters...)
+	return a.standardPostAndGetAdapter(postHandler, a.LoginURL, a.PasswordResetURL, adapters...)
 }
 
 func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {

@@ -19,7 +19,7 @@ import (
 func (a *HTTPAuth) SignUpAdapter() adaptd.Adapter {
 	postHandler := a.CSRFPostAdapter(a.SignUpURL, "CSRF token not valid for password reset request")(http.HandlerFunc(a.signUp))
 
-	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterSignUp)
+	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterSignUp, a.SignUpURL)
 }
 
 // SignUpVerificationAdapter handles verification of sign ups.

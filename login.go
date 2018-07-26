@@ -27,7 +27,7 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 		a.CSRFPostAdapter(a.LoginURL, "CSRF token not valid for log in request"),
 	)
 
-	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterLogin, adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, "User requesting login page is logged in", http.StatusAccepted))
+	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterLogin, a.LoginURL, adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, "User requesting login page is logged in", http.StatusAccepted))
 }
 
 func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {

@@ -76,7 +76,10 @@ type HTTPAuth struct {
 // cost parameter is the desired cost for bycrypt generated hashes.
 // The parameters listed are the ones necessary for setting up the handler.
 // All other fields are customizable after creating the handler.
-func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+//
+// In order for this to work properly, you must also set the two email templates and the error template.
+// i.e. `auth.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))`
+func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
@@ -92,13 +95,13 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 		return nil, errors.New("Session handler could not be created")
 	}
 	// Cross-site request forgery handler
-	ah.csrfHandler = csrf.NewHandler(db, sessionTimeout, secret)
+	ah.csrfHandler = csrf.NewHandler(db, csrfsTimeout, secret)
 	if ah.csrfHandler == nil {
 		// CSRF handler could not be created, likely a database problem.
 		return nil, errors.New("CSRF handler could not be created")
 	}
 	// Password reset token handler.
-	ah.passResetHandler = passreset.NewHandler(db, sessionTimeout, secret)
+	ah.passResetHandler = passreset.NewHandler(db, passwordResetTimeout, secret)
 	if ah.passResetHandler == nil {
 		// Password reset handler could not be created, likely a database problem.
 		return nil, errors.New("Password reset handler could not be created")
@@ -124,9 +127,6 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 	ah.PasswordResetRequestURL = "/pass_reset_request"
 	ah.PasswordResetURL = "/pass_reset"
 	ah.RedirectAfterResetRequest = "/pass_reset_sent"
-	// Email templates
-	ah.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))
-	ah.SignUpEmailTemplate = template.Must(template.ParseFiles("templates/signup.tmpl.html"))
 	return ah, nil
 }
 
@@ -176,7 +176,7 @@ func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Ad
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
-			RedirectOnError(f, http.RedirectHandler(redirectOnError, http.StatusUnauthorized), logOnError),
+			RedirectOnError(f, http.RedirectHandler(redirectOnError, http.StatusSeeOther), logOnError),
 		}
 
 		return adaptd.Adapt(h, adapters...)
@@ -194,11 +194,11 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 		return adaptd.Adapt(h, adapters...)
 	}
 }
-func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
+func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
-			PostAndOtherOnError(postHandler, redirectOnSuccess),
+			PostAndOtherOnError(postHandler, redirectOnSuccess, redirectOnError),
 			a.CSRFGetAdapter(),
 		}
 
