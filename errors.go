@@ -1,7 +1,5 @@
 package authandler
 
-// TODO: Bad login error, username exists error, email exists error
-
 // Error codes
 const (
 	BadLogin = iota
