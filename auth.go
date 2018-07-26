@@ -234,7 +234,7 @@ func (a *HTTPAuth) SignUpVerificationAdapter() adaptd.Adapter {
 		u := getUserFromDB(a.db, a.UsersTableName, "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if err != nil {
-			return errors.New("Sign up validation not authorized")
+			return NewError(TokenError)
 		}
 		return nil
 	}
@@ -325,7 +325,7 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 		u := getUserFromDB(a.db, a.UsersTableName, "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if !(a.userIsAuthenticated(w, r) || err == nil) {
-			return errors.New("Password reset not authorized")
+			return NewError(TokenError)
 		}
 		return nil
 	}
@@ -406,7 +406,7 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Println("User login failed, redirecting back to login page")
-	err := errors.New("Login failed")
+	err := NewError(BadLogin)
 	*r = *r.WithContext(NewErrorContext(r.Context(), err))
 }
 
@@ -428,7 +428,7 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 
 	username, err := a.passResetHandler.ValidHeaderToken(r)
 	if password != repeatedPassword {
-		err = errors.New("Passwords for reset do not match")
+		err = NewError(PasswordError)
 	}
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
@@ -436,7 +436,7 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 	}
 	passHash, err := a.GenerateHashFromPassword([]byte(password))
 	if err != nil {
-		err = errors.New("Error hashing password for database")
+		err = NewError(PasswordError)
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
@@ -449,13 +449,13 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 	addr, err := mail.ParseAddress(r.PostFormValue("email"))
 	if err != nil {
-		*r = *r.WithContext(NewErrorContext(r.Context(), errors.New("Email address was not a valid address")))
+		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailDoesNotExist)))
 		return
 	}
 
 	user := getUserFromDB(a.db, a.UsersTableName, "email", addr.Address)
 	if user == nil {
-		*r = *r.WithContext(NewErrorContext(r.Context(), fmt.Errorf("User with email %v does not exist", addr.Address)))
+		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailDoesNotExist)))
 		return
 	}
 	pwResetLink := a.passResetHandler.GenerateNewToken(user.Username)
@@ -495,7 +495,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	err = a.emailHandler.SendMessage(a.SignUpEmailTemplate, "Welcome!", data, user)
 	if password == "" || password != repeatedPassword || err != nil || !user.isValid() {
 		log.Println("User sign up failed, redirecting back to sign up page")
-		err = errors.New("Sign up failed")
+		err = NewError(BadLogin)
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
@@ -508,12 +508,12 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 func (a *HTTPAuth) verifySignUp(w http.ResponseWriter, r *http.Request) error {
 	user := UserFromContext(r.Context())
 	if user == nil {
-		return errors.New("Bad sign up verification")
+		return NewError(TokenError)
 	}
 
 	err := validateUser(a.db, a.UsersTableName, user)
 	if err != nil {
-		err = errors.New("Bad sign up verification")
+		err = NewError(TokenError)
 	}
 	return err
 }
