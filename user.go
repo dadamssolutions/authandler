@@ -2,6 +2,8 @@ package authandler
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -15,8 +17,11 @@ const (
 	Admin
 
 	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', PRIMARY KEY (username));"
+	addUserToDatabaseSQL    = "INSERT INTO %v (username, fname, lname, email, validated, pass_hash) VALUES ('%v','%v','%v','%v',false,'%v');"
 	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %v WHERE %v = '%v';"
-	getUserPasswordHash     = "SELECT pass_hash FROM %v WHERE username = '%v';"
+	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = '%v';"
+	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = '%v';"
+	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
 	deleteUsersTestTableSQL = "DROP TABLE %v;"
 )
 
@@ -58,17 +63,23 @@ func (u User) IsValidated() bool {
 	return u.validated
 }
 
-func getUserFromDB(db *sql.DB, tableName, col, username string) *User {
+func (u User) isValid() bool {
+	if u.FirstName == "" || u.LastName == "" || u.email == "" || u.Username == "" {
+		return false
+	}
+	return true
+}
+
+func getUserFromDB(db *sql.DB, tableName, col, search string) *User {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Println("Cannot connect to database")
 		return nil
 	}
 	user := User{}
-	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, username)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.email, &user.Role, &user.validated)
+	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.email, &user.Role, &user.validated)
 	if err != nil {
 		tx.Rollback()
-		log.Println(err)
 		return nil
 	}
 	tx.Commit()
@@ -78,5 +89,73 @@ func getUserFromDB(db *sql.DB, tableName, col, username string) *User {
 	user.LastName, _ = url.QueryUnescape(user.LastName)
 	user.Username, _ = url.QueryUnescape(user.Username)
 
+	user.passHash, _ = getUserPasswordHash(db, tableName, user.Username)
+
 	return &user
+}
+
+func addUserToDatabase(db *sql.DB, tableName string, user *User) error {
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println("Cannot connect to database")
+		return err
+	}
+	_, err = tx.Exec(fmt.Sprintf(addUserToDatabaseSQL, tableName, user.Username, user.FirstName, user.LastName, user.email, base64.RawURLEncoding.EncodeToString(user.passHash)))
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func validateUser(db *sql.DB, tableName string, user *User) error {
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println("User cannot be verified")
+		return fmt.Errorf("User %v cannot be verified", user.Username)
+	}
+	_, err = tx.Exec(fmt.Sprintf(validateUserSQL, tableName, user.Username))
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("User %v cannot be verified", user.Username)
+	}
+	return tx.Commit()
+}
+
+func getUserPasswordHash(db *sql.DB, tableName, username string) ([]byte, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println(err)
+		return nil, errors.New("Failed to get password from database")
+	}
+	var pwHash string
+	err = tx.QueryRow(fmt.Sprintf(getUserPasswordHashSQL, tableName, username)).Scan(&pwHash)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("User %v not found in the database\n", username)
+		return nil, fmt.Errorf("User %v not found in database", username)
+	}
+	pwDecoded, err := base64.RawURLEncoding.DecodeString(pwHash)
+	if err != nil {
+		tx.Rollback()
+		log.Println(err)
+		log.Println("Error decoding password from database. Database might be corrupted!")
+		return nil, errors.New("Failed to get password from database")
+	}
+	return pwDecoded, tx.Commit()
+}
+
+func updateUserPassword(db *sql.DB, tableName, username, passHash string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return errors.New("Failed to connect to database")
+	}
+	_, err = tx.Exec(fmt.Sprintf(updateUserPasswordSQL, tableName, passHash, username))
+	if err != nil {
+		tx.Rollback()
+		return errors.New("Failed to update user's password")
+	}
+	tx.Commit()
+	log.Printf("%v's password was updated successfully\n", username)
+	return nil
 }

@@ -307,6 +307,9 @@ func (s sesDataAccess) padToBlockSize(b []byte) []byte {
 }
 
 func (s sesDataAccess) isValidPadding(b []byte) ([]byte, error) {
+	if len(b) == 0 {
+		return b, errors.New("Invalid padding")
+	}
 	paddedByte := b[len(b)-1]
 	// If the last byte is 0 or greater than the block length, then we know the padding is invalid.
 	if paddedByte > byte(s.cipher.BlockSize()) || paddedByte <= 0 {
