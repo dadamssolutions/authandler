@@ -70,7 +70,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	user := &User{FirstName: firstName, LastName: lastName, Username: username, email: addr.Address, passHash: hashedPassword, validated: false}
 	token := a.passResetHandler.GenerateNewToken(user.Username)
 	data := make(map[string]interface{})
-	data["Link"] = a.domainName + a.SignUpURL + token.Query()
+	data["Link"] = "https://" + a.domainName + a.SignUpVerificationURL + "?" + token.Query()
 	err = a.emailHandler.SendMessage(a.SignUpEmailTemplate, "Welcome!", data, user)
 	if password == "" || password != repeatedPassword || err != nil || !user.isValid() {
 		log.Println("User sign up failed, redirecting back to sign up page")
