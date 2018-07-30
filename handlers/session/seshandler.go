@@ -11,7 +11,7 @@ The session structs themselves should not be acted upon independently. Instead t
 	err = sh.DestroySession(session)
 This will "destroy" the session struct itself and in the database. Once the struct is destroyed, it can be passed to the handler which will detected its destroyed-ness. For security reasons, a destroyed session cannot be un-destoyed.
 
-A selectorID and a sessionID is generated for each session. The selectorID and a hash of the sessionID is stored in the database. The selectorID and sessionID are sent with the response. This is an idea take from https://paragonie.com/blog/2015/04/secure-authentication-php-with-long-term-persistence#title.2
+A selectorID and a sessionID is generated for each session. The selectorID and a hash of the sessionID is stored in the database. The selectorID and sessionID are sent with the response. This is an idea taken from https://paragonie.com/blog/2015/04/secure-authentication-php-with-long-term-persistence#title.2
 
 This package is best used with an authentication handler.
 */
@@ -19,6 +19,7 @@ package session
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -99,34 +100,12 @@ func (sh *Handler) isValidSession(ses *sessions.Session) bool {
 // UpdateSessionIfValid resets the expiration of the session from time.Now.
 // Should also be used to verify that a session is valid.
 // If the session is invalid, then a non-nil error will be returned.
-func (sh *Handler) UpdateSessionIfValid(ses *sessions.Session) (*sessions.Session, error) {
-	if ok := sh.isValidSession(ses); !ok {
+func (sh *Handler) UpdateSessionIfValid(ses *sessions.Session) error {
+	if !sh.isValidSession(ses) {
 		log.Println("We were provided an invalid session so we can't update it")
-		return nil, invalidSessionError(sh.dataAccess.tableName)
+		return invalidSessionError(sh.dataAccess.tableName)
 	}
-	// If the session is persistant, then we reset the expiration from time.Now
-	if ses.IsPersistant() {
-		err := sh.dataAccess.updateSession(ses, sh.maxLifetime)
-		if err != nil {
-			log.Println(err)
-			return nil, err
-		}
-	} else {
-		// If the session is not persistant, then it should be destroyed
-		// and another one created in its place.
-		err := sh.DestroySession(ses)
-		if err != nil {
-			log.Println(err)
-			return nil, err
-		}
-		newerSession, err := sh.CreateSession(ses.Username(), false)
-		if err != nil {
-			log.Println(err)
-			return nil, err
-		}
-		ses = newerSession
-	}
-	return ses, nil
+	return sh.updateSession(ses)
 }
 
 // ParseSessionFromRequest takes a request, determines if there is a valid session cookie,
@@ -171,21 +150,77 @@ func (sh *Handler) ParseSessionCookie(cookie *http.Cookie) (*sessions.Session, e
 
 // AttachCookie sets a cookie on a ResponseWriter
 // A session is returned because the session may have changed when it is updated
-func (sh *Handler) AttachCookie(w http.ResponseWriter, ses *sessions.Session) (*sessions.Session, error) {
+func (sh *Handler) AttachCookie(w http.ResponseWriter, ses *sessions.Session) error {
 	// Need to save the selector incase the call to UpdateSessionIfValid returns an error
 	var err error
 	var selectorID string
 	if ses != nil {
 		selectorID = ses.SelectorID()
 	}
-	ses, err = sh.UpdateSessionIfValid(ses)
+	err = sh.UpdateSessionIfValid(ses)
 	if err != nil {
 		log.Printf("Invalid %v with ID %v: no cookie returned", sh.dataAccess.tableName, selectorID)
-		return ses, invalidSessionError(sh.dataAccess.tableName)
+		return invalidSessionError(sh.dataAccess.tableName)
 	}
 	// Attach the cookie to the response writer
 	http.SetCookie(w, ses.SessionCookie())
-	return ses, nil
+	return nil
+}
+
+// LogUserIn logs the user into the session and saves the information to the database
+func (sh *Handler) LogUserIn(ses *sessions.Session, username string) error {
+	return sh.dataAccess.logUserIntoSession(ses, username, sh.maxLifetime)
+}
+
+// LogUserOut logs the user out of the session and saves the information in the database
+func (sh *Handler) LogUserOut(ses *sessions.Session) error {
+	return sh.dataAccess.logUserOut(ses, sh.maxLifetime)
+}
+
+// ReadFlashes allows reading of the flashes from the session and then updates the database.
+// This is a shorthand for reading flashes from the session and then calling UpdateSession.
+func (sh *Handler) ReadFlashes(ses *sessions.Session) ([]string, []string) {
+	msgs, errs := ses.Flashes()
+	// TODO: when the user reads the flashes of a non-persistant session, the session is replaced and the next request will fail.
+	// TEST that this solution works.
+	err := sh.dataAccess.updateSession(ses, sh.maxLifetime)
+	if err != nil {
+		log.Println(err)
+		errs = append(errs, err.Error())
+	}
+	return msgs, errs
+}
+
+// CopySession returns a new session with the values of the parameter session (accept selector and session IDs)
+func (sh *Handler) CopySession(ses *sessions.Session, persistant bool) *sessions.Session {
+	newSes, err := sh.CreateSession(ses.Username(), persistant)
+	if err != nil {
+		return nil
+	}
+	msgs, errs := ses.Flashes()
+	newSes.AddMessage(msgs...)
+	newSes.AddError(errs...)
+	sh.DestroySession(ses)
+	return newSes
+}
+
+func (sh *Handler) updateSession(ses *sessions.Session) error {
+	// If the session is persistant, then we reset the expiration from time.Now
+	if !ses.IsPersistant() {
+		// If the session is not persistant, then it should be destroyed
+		// and another one created in its place.
+		newerSession := sh.CopySession(ses, ses.IsPersistant())
+		if newerSession == nil {
+			return errors.New("Could not copy session to new session")
+		}
+		*ses = *newerSession
+	}
+	err := sh.dataAccess.updateSession(ses, sh.maxLifetime)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	return nil
 }
 
 func (sh *Handler) validateUserInputs(ses *sessions.Session) bool {

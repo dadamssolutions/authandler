@@ -21,13 +21,12 @@ import (
 
 const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
-	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar NOT NULL, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM %[1]v;"
+	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM %[1]v;"
 	dropTable          = "DROP TABLE %v;"
-	insertSession      = "INSERT INTO %v(selector, session_hash, user_id, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v');"
-	userSessionExists  = "SELECT count(*) FROM %v WHERE user_id = '%v';"
+	insertSession      = "INSERT INTO %v(selector, session_hash, user_id, values, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v', '%v');"
 	deleteSession      = "DELETE FROM %v WHERE selector = '%v';"
-	getSessionInfo     = "SELECT selector, session_hash, user_id, expiration, persistant FROM %v WHERE selector = '%v';"
-	updateSession      = "UPDATE %v SET expiration = '%v' WHERE selector = '%v';"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistant FROM %v WHERE selector = '%v';"
+	updateSession      = "UPDATE %v SET (user_id, expiration, values) = ('%v', '%v', '%v') WHERE selector = '%v';"
 	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistant AND created < NOW() - INTERVAL '%v SECONDS') OR (persistant AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
@@ -181,7 +180,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			return nil, err
 		}
 		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), s.cookieName, maxLifetime)
-		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), username, time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
+		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), ses.Username(), ses.ValuesAsText(), time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
@@ -206,7 +205,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 // getSessionInfo pulls the session out of the database.
 // No validation is done here. That must be done elsewhere.
 func (s sesDataAccess) getSessionInfo(selectorID, sessionID, encryptedUsername string, maxLifetime time.Duration) (*sessions.Session, error) {
-	var dbHash, username string
+	var dbHash, values, username string
 	var expires time.Time
 	var persistant bool
 	var ses *sessions.Session
@@ -215,41 +214,27 @@ func (s sesDataAccess) getSessionInfo(selectorID, sessionID, encryptedUsername s
 		return nil, err
 	}
 	queryString := fmt.Sprintf(getSessionInfo, s.tableName, selectorID)
-	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &expires, &persistant)
+	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistant)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 	err = tx.Commit()
-	// Check that the encryptedUsername decrypts to the right thing. Otherwise, sessions is not valid
-	if !s.decryptAndCompare(encryptedUsername, username, selectorID) {
-		return nil, errors.New("Session username is not valid")
-	}
 	// If the session is persistant, then we set the expiration to maxLifetime
 	if persistant {
 		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, s.cookieName, maxLifetime)
 	} else {
 		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, s.cookieName, 0)
 	}
+	err = ses.TextToValues(values)
+	if err != nil {
+		return nil, err
+	}
+	// Check that the encryptedUsername decrypts to the right thing. Otherwise, sessions is not valid
+	if username != ses.Username() || !s.decryptAndCompare(encryptedUsername, ses.Username(), selectorID) {
+		return nil, errors.New("Session username is not valid")
+	}
 	return ses, err
-}
-
-func (s sesDataAccess) sessionExistsForUser(username string) (bool, error) {
-	tx, err := s.Begin()
-	if err != nil {
-		return true, err
-	}
-	var count int
-	queryString := fmt.Sprintf(userSessionExists, s.tableName, username)
-	err = tx.QueryRow(queryString).Scan(&count)
-	if err != nil {
-		return true, err
-	}
-	err = tx.Commit()
-	if err != nil {
-		return true, err
-	}
-	return count > 0, nil
 }
 
 func (s sesDataAccess) destroySession(ses *sessions.Session) error {
@@ -270,7 +255,7 @@ func (s sesDataAccess) updateSession(ses *sessions.Session, maxLifetime time.Dur
 	if err != nil {
 		return err
 	}
-	queryString := fmt.Sprintf(updateSession, s.tableName, ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.SelectorID())
+	queryString := fmt.Sprintf(updateSession, s.tableName, ses.Username(), ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.ValuesAsText(), ses.SelectorID())
 	_, err = tx.Exec(queryString)
 	if err != nil {
 		tx.Rollback()
@@ -293,6 +278,31 @@ func (s sesDataAccess) validateSession(ses *sessions.Session, maxLifetime time.D
 		s.destroySession(ses)
 		log.Printf("%v %v is not valid so we destroyed it", s.tableName, ses.SelectorID())
 		return sessionExpiredError(ses.SelectorID(), s.tableName)
+	}
+	return nil
+}
+
+// logUserIntoSession takes care of logging a user into a session.
+// This includes things like changing the encrypted username data.
+func (s sesDataAccess) logUserIntoSession(ses *sessions.Session, username string, maxLifetime time.Duration) error {
+	ses.LogUserIn(username, s.encrypt(username, ses.SelectorID()))
+	err := s.updateSession(ses, maxLifetime)
+	if err != nil {
+		ses.LogUserOut()
+		return errors.New("Unable to log user into session")
+	}
+	return nil
+}
+
+// logUserOut takes care of logging a user into a session.
+// This includes things like changing the encrypted username data.
+func (s sesDataAccess) logUserOut(ses *sessions.Session, maxLifetime time.Duration) error {
+	u, eu := ses.Username(), ses.EncryptedUsername()
+	ses.LogUserOut()
+	err := s.updateSession(ses, maxLifetime)
+	if err != nil {
+		ses.LogUserIn(u, eu)
+		return errors.New("Unable to log user out of session")
 	}
 	return nil
 }

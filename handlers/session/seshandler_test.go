@@ -75,7 +75,7 @@ func TestUpdateExpiredTime(t *testing.T) {
 	ses, _ := sh.CreateSession("dadams", true)
 	now := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Microsecond * 2)
-	ses, err := sh.UpdateSessionIfValid(ses)
+	err := sh.UpdateSessionIfValid(ses)
 	if err != nil || ses.ExpireTime().Before(now) {
 		log.Println(err)
 		t.Error("Session expiration not updated.")
@@ -85,8 +85,8 @@ func TestUpdateExpiredTime(t *testing.T) {
 	sesNotInDatabase := sessions.NewSession("", "", "", "", "", time.Microsecond)
 	nowt := time.Now().Add(sh.maxLifetime)
 	time.Sleep(time.Millisecond)
-	updatedSes, err := sh.UpdateSessionIfValid(sesNotInDatabase)
-	if err == nil || updatedSes != nil || nowt.Before(sesNotInDatabase.ExpireTime()) {
+	err = sh.UpdateSessionIfValid(sesNotInDatabase)
+	if err == nil || nowt.Before(sesNotInDatabase.ExpireTime()) {
 		log.Println(err)
 		t.Error("Session expiration update unexpected.")
 	}
@@ -94,8 +94,9 @@ func TestUpdateExpiredTime(t *testing.T) {
 
 func TestUpdateToNonPersisantShouldCreateNewSession(t *testing.T) {
 	ses, _ := sh.CreateSession("username", false)
-	newerSession, err := sh.UpdateSessionIfValid(ses)
-	if err != nil || newerSession.SelectorID() == ses.SelectorID() || newerSession.SessionID() == ses.SessionID() || !ses.IsDestroyed() || newerSession.IsDestroyed() {
+	selector, session := ses.SelectorID(), ses.SessionID()
+	err := sh.UpdateSessionIfValid(ses)
+	if err != nil || ses.SelectorID() == selector || ses.SessionID() == session || ses.IsDestroyed() {
 		t.Error("Non-persistant session should be destroyed and re-created on update")
 	}
 }
@@ -159,20 +160,6 @@ func TestDestroySession(t *testing.T) {
 	if sessionNotInDatabase.IsValid() || err != nil {
 		log.Println(err)
 		t.Error("Session not destroyed.")
-	}
-}
-
-func TestSessionExistsForUser(t *testing.T) {
-	ses, _ := sh.CreateSession("dadams", true)
-	exists, _ := sh.dataAccess.sessionExistsForUser(ses.Username())
-	if !exists {
-		t.Error("The user should have a session in the database")
-	}
-
-	sessionNotInDatabase := sessions.NewSession(strings.Repeat("a", selectorIDLength), strings.Repeat("a", sessionIDLength), "", "nadams", sh.dataAccess.cookieName, sh.maxLifetime)
-	exists, _ = sh.dataAccess.sessionExistsForUser(sessionNotInDatabase.Username())
-	if exists {
-		t.Error("The user should NOT have a session in the database")
 	}
 }
 
@@ -249,17 +236,17 @@ func TestParsingCookieDetectsPersistance(t *testing.T) {
 func TestAttachPersistantCookieToResponseWriter(t *testing.T) {
 	session, _ := sh.CreateSession("dadams", true)
 	w := httptest.NewRecorder()
-	ses, err := sh.AttachCookie(w, session)
+	err := sh.AttachCookie(w, session)
 	resp := w.Result()
 	attachedSession, err := sh.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || !session.Equals(attachedSession, sh.dataAccess.hashString) || !session.Equals(ses, sh.dataAccess.hashString) {
+	if err != nil || !session.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Cookie not attached to response writer")
 	}
 
 	sh.DestroySession(session)
 	w = httptest.NewRecorder()
-	ses, err = sh.AttachCookie(w, session)
-	if err == nil || ses != nil || session.Equals(attachedSession, sh.dataAccess.hashString) {
+	err = sh.AttachCookie(w, session)
+	if err == nil || session.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Invalid cookie attached to response writer")
 	}
 }
@@ -267,17 +254,17 @@ func TestAttachPersistantCookieToResponseWriter(t *testing.T) {
 func TestAttachSessionOnlyCookieToResponseWriter(t *testing.T) {
 	session, _ := sh.CreateSession("dadams", false)
 	w := httptest.NewRecorder()
-	ses, err := sh.AttachCookie(w, session)
+	err := sh.AttachCookie(w, session)
 	resp := w.Result()
 	attachedSession, err := sh.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || !ses.Equals(attachedSession, sh.dataAccess.hashString) || session.Equals(attachedSession, sh.dataAccess.hashString) {
+	if err != nil || !session.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Cookie not attached to response writer")
 	}
 
-	sh.DestroySession(ses)
+	sh.DestroySession(session)
 	w = httptest.NewRecorder()
-	_, err = sh.AttachCookie(w, session)
-	if err == nil || ses.Equals(attachedSession, sh.dataAccess.hashString) {
+	err = sh.AttachCookie(w, session)
+	if err == nil || session.Equals(attachedSession, sh.dataAccess.hashString) {
 		t.Error("Invalid cookie attached to response writer")
 	}
 }
@@ -306,7 +293,7 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 25) // Wait for a short time
 
-	ses2, err := sh.UpdateSessionIfValid(ses2)
+	err := sh.UpdateSessionIfValid(ses2)
 	if err != nil || ses2.IsDestroyed() {
 		t.Error("Non-persistant session should not be destroyed yet")
 	}
@@ -319,7 +306,7 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 	}
 
 	// Update the persistant session so it stays in the database
-	ses1, _ = sh.UpdateSessionIfValid(ses1)
+	sh.UpdateSessionIfValid(ses1)
 
 	time.Sleep(time.Millisecond * 500) // Wait for clean-up to fire
 
@@ -338,6 +325,40 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 	// Now ses1 should be destroyed
 	if sh.isValidSession(ses1) {
 		t.Error("A persistant session should now be invalid")
+	}
+}
+
+func TestReadFlashes(t *testing.T) {
+	ses, _ := sh.CreateSession("dadams", false)
+	ses.AddError("Error1")
+	ses.AddMessage("Message1")
+	ses.AddMessage("Message2")
+
+	msgs, errs := sh.ReadFlashes(ses)
+	if len(msgs) != 2 || len(errs) != 1 {
+		t.Error("Messages or errors not returned properly")
+	}
+
+	ses1, _ := sh.ParseSessionCookie(ses.SessionCookie())
+
+	msgs, errs = ses1.Flashes()
+	if len(msgs) != 0 || len(errs) != 0 {
+		t.Error("Flashes should be empty after reading.")
+	}
+}
+
+func TestLogUserIn(t *testing.T) {
+	session, _ := sh.CreateSession("", false)
+	sh.LogUserIn(session, "dadams")
+
+	if !session.IsUserLoggedIn() || session.Username() != "dadams" {
+		t.Error("User not logged into session")
+	}
+
+	sh.LogUserOut(session)
+
+	if session.IsUserLoggedIn() || session.Username() != "" {
+		t.Error("User not logged out of session")
 	}
 }
 func TestMain(m *testing.M) {

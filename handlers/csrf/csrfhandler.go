@@ -38,8 +38,7 @@ func (c *Handler) GenerateNewToken(w http.ResponseWriter) error {
 		log.Println("Error creating a new CSRF token")
 		return err
 	}
-	_, err = c.AttachCookie(w, ses)
-	return err
+	return c.AttachCookie(w, ses)
 }
 
 // ValidToken verifies that a CSRF token is valid and then destroys it

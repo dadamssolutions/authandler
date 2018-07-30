@@ -143,7 +143,7 @@ func TestLogUserIn(t *testing.T) {
 		t.Error("A user should not be logged in for a session created with no username")
 	}
 
-	err := ses.LogUserIn("dadams")
+	err := ses.LogUserIn("dadams", "dadams")
 	if err != nil || !ses.IsUserLoggedIn() {
 		log.Println(err)
 		log.Println(ses.Username())

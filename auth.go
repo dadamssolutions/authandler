@@ -15,6 +15,7 @@ import (
 	"github.com/dadamssolutions/authandler/handlers/email"
 	"github.com/dadamssolutions/authandler/handlers/passreset"
 	"github.com/dadamssolutions/authandler/handlers/session"
+	"github.com/dadamssolutions/authandler/handlers/session/sessions"
 	_ "github.com/lib/pq" // Database driver
 	"golang.org/x/crypto/bcrypt"
 )
@@ -131,41 +132,82 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 }
 
 // AddDefaultHandlers adds the standard handlers needed for the auth handler.
-func (a *HTTPAuth) AddDefaultHandlers(signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+func (a *HTTPAuth) AddDefaultHandlers(home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+	http.Handle("/", a.MustHaveAdapters(nil)(home))
 	http.Handle(a.SignUpURL, a.SignUpAdapter()(signUp))
-	http.Handle(a.RedirectAfterSignUp, adaptd.EnsureHTTPS(false)(afterSignUp))
+	http.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(nil)(afterSignUp))
 	http.Handle(a.SignUpVerificationURL, a.SignUpVerificationAdapter()(verifySignUp))
 	http.Handle(a.LoginURL, a.LoginAdapter()(logIn))
-	http.Handle(a.RedirectAfterLogin, adaptd.EnsureHTTPS(false)(afterLogIn))
+	http.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(nil)(afterLogIn))
 	http.Handle(a.LogOutURL, a.LogoutAdapter("/")(logOut))
 	http.Handle(a.PasswordResetURL, a.PasswordResetAdapter()(passReset))
-	http.Handle(a.RedirectAfterResetRequest, adaptd.EnsureHTTPS(false)(passResetSent))
+	http.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(nil)(passResetSent))
 	http.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
 }
 
 // AddDefaultHandlersWithMux adds the standard handlers needed for the auth handler to the ServeMux.
-func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+	mux.Handle("/", a.MustHaveAdapters(nil)(home))
 	mux.Handle(a.SignUpURL, a.SignUpAdapter()(signUp))
-	mux.Handle(a.RedirectAfterSignUp, adaptd.EnsureHTTPS(false)(afterSignUp))
+	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(nil)(afterSignUp))
 	mux.Handle(a.SignUpVerificationURL, a.SignUpVerificationAdapter()(verifySignUp))
 	mux.Handle(a.LoginURL, a.LoginAdapter()(logIn))
-	mux.Handle(a.RedirectAfterLogin, adaptd.EnsureHTTPS(false)(afterLogIn))
+	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(nil)(afterLogIn))
 	mux.Handle(a.LogOutURL, a.LogoutAdapter("/")(logOut))
 	mux.Handle(a.PasswordResetURL, a.PasswordResetAdapter()(passReset))
-	mux.Handle(a.RedirectAfterResetRequest, adaptd.EnsureHTTPS(false)(passResetSent))
+	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(nil)(passResetSent))
 	mux.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
 }
 
-// RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
-// It automatically applies the adaptd.EnsureHTTPS adapter.
-func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
+// LoadOrCreateSession adapter loads a session if the request has the correct cookie.
+// If the request does not have the correct cookie, we create one, attach it to the response,
+// and put it on the Request's context.
+func (a *HTTPAuth) LoadOrCreateSession() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
-		adapters := []adaptd.Adapter{
-			adaptd.EnsureHTTPS(false),
-			adaptd.CheckAndRedirect(a.userIsAuthenticated, a.LoginURL, "User not authenticated", http.StatusFound),
-		}
-		return adaptd.Adapt(h, adapters...)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ses, err := a.sesHandler.ParseSessionFromRequest(r)
+			if err != nil {
+				ses, err = a.sesHandler.CreateSession("", false)
+				if err != nil {
+					log.Println("Error creating a session")
+				}
+			}
+			r = r.WithContext(NewSessionContext(r.Context(), ses))
+			h.ServeHTTP(w, r)
+		})
 	}
+}
+
+// AttachSessionCookie adapter calls the handler and then attaches the session cookie to the response.
+// This should be the last adapter attached to the handler.
+func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ses := SessionFromContext(r.Context())
+			a.sesHandler.AttachCookie(w, ses)
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+// MustHaveAdapters are the adapters that we must have for essentially every Handler
+//
+// As of now, they are EnsureHHTPS. LoadOrCreateSession, and AttachSessionCookie (which is at the end)
+func (a *HTTPAuth) MustHaveAdapters(otherAdapters []adaptd.Adapter) adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		otherAdapters = append([]adaptd.Adapter{adaptd.EnsureHTTPS(false), a.LoadOrCreateSession()}, otherAdapters...)
+		otherAdapters = append(otherAdapters, a.AttachSessionCookie())
+		return adaptd.Adapt(h, otherAdapters...)
+	}
+}
+
+// RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
+// It automatically applies the MustHaveAdapters.
+func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
+	adapters := []adaptd.Adapter{
+		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.AttachSessionCookie()(http.RedirectHandler(a.LoginURL, http.StatusSeeOther)), "User not authenticated"),
+	}
+	return a.MustHaveAdapters(adapters)
 }
 
 // CSRFPostAdapter handles the CSRF token verification for POST requests.
@@ -175,7 +217,6 @@ func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Ad
 	}
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			adaptd.EnsureHTTPS(false),
 			RedirectOnError(f, http.RedirectHandler(redirectOnError, http.StatusSeeOther), logOnError),
 		}
 
@@ -187,7 +228,6 @@ func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Ad
 func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			adaptd.EnsureHTTPS(false),
 			adaptd.AddCookieWithFunc(csrf.CookieName, a.csrfHandler.GenerateNewToken),
 		}
 
@@ -196,13 +236,14 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 }
 func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
+		onSuccess := a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther))
+		onError := a.AttachSessionCookie()(http.RedirectHandler(redirectOnError, http.StatusSeeOther))
 		adapters := []adaptd.Adapter{
-			adaptd.EnsureHTTPS(false),
-			PostAndOtherOnError(postHandler, redirectOnSuccess, redirectOnError),
-			a.CSRFGetAdapter(),
+			PostAndOtherOnError(postHandler, onSuccess, onError),
 		}
+		extraAdapters = append(extraAdapters, a.CSRFGetAdapter())
 
-		return adaptAndAbsorbError(h, append(adapters, extraAdapters...)...)
+		return adaptd.Adapt(h, a.MustHaveAdapters(append(adapters, extraAdapters...)))
 	}
 }
 
@@ -210,6 +251,9 @@ func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectO
 func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 	// If there is a current user, then we must have a cooke for them.
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
+	if ses != nil && !ses.IsUserLoggedIn() {
+		return nil
+	}
 	user := UserFromContext(r.Context())
 	if err != nil {
 		if user != nil {
@@ -235,27 +279,39 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 	return username != "" && currentUser != nil && currentUser.Username == username
 }
 
+// Flashes returns the flashes of the session and updates the database.
+func (a *HTTPAuth) Flashes(ses *sessions.Session) ([]string, []string) {
+	return a.sesHandler.ReadFlashes(ses)
+}
+
 func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
-	if ses != nil {
-		err = a.sesHandler.DestroySession(ses)
+	if ses.IsUserLoggedIn() {
+		err = a.sesHandler.LogUserOut(ses)
 		if err != nil {
-			log.Printf("Could not log user out so creating a new session context\n")
-			a.sesHandler.AttachCookie(w, ses)
+			log.Println("Could not log user out")
 			*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		}
 	}
+	*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 	return err == nil
 }
 
+// TEST: If session does not have a username, we should make sure this returns false.
 func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) bool {
 	// Check that the user is logged in by looking for a session cookie
-	ses, err := a.sesHandler.ParseSessionFromRequest(r)
-	if err != nil {
-		return false
+	ses := SessionFromContext(r.Context())
+	if ses == nil {
+		ses, _ = a.sesHandler.ParseSessionFromRequest(r)
+		if ses == nil {
+			return false
+		}
+		*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 	}
-	user := getUserFromDB(a.db, a.UsersTableName, "username", ses.Username())
-	a.sesHandler.AttachCookie(w, ses)
-	*r = *r.WithContext(NewUserContext(r.Context(), user))
-	return true
+	if ses.IsUserLoggedIn() {
+		user := getUserFromDB(a.db, a.UsersTableName, "username", ses.Username())
+		*r = *r.WithContext(NewUserContext(r.Context(), user))
+		return true
+	}
+	return false
 }

@@ -44,7 +44,7 @@ func TestSignUpPost(t *testing.T) {
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err != nil || resp.StatusCode != http.StatusAccepted || redirectURL.Path != a.RedirectAfterSignUp {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.RedirectAfterSignUp {
 		t.Error("Sign up email not sent properly")
 	}
 

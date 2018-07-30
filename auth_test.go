@@ -34,15 +34,10 @@ type testHandler struct{}
 
 func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	num++
-	ses := SessionFromContext(r.Context())
-	if ses != nil {
-		a.sesHandler.AttachCookie(w, ses)
-	}
 	err := ErrorFromContext(r.Context())
 	if err != nil {
 		log.Println(err)
 		num *= 10
-		w.WriteHeader(http.StatusSeeOther)
 	}
 	w.Write([]byte("Test handler"))
 }
@@ -73,7 +68,7 @@ func TestUserNotLoggedInHandler(t *testing.T) {
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	resp, err := client.Get(ts.URL)
-	if err == nil || resp.StatusCode != http.StatusFound || num != 0 {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 || len(resp.Cookies()) == 0 {
 		log.Printf("Status code: %v with error: %v\n", resp.StatusCode, err)
 		t.Error("Not redirected when user is not logged in")
 	}
@@ -86,7 +81,7 @@ func TestUserLoggedInHandler(t *testing.T) {
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
-	req, _ := http.NewRequest("GET", ts.URL, nil)
+	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
 	// Create the user logged in session
 	ses, _ := a.sesHandler.CreateSession("dadams", true)
@@ -99,6 +94,7 @@ func TestUserLoggedInHandler(t *testing.T) {
 	}
 
 	if len(resp.Cookies()) == 0 || resp.Cookies()[0].Name != ses.SessionCookie().Name || resp.Cookies()[0].Value != ses.CookieValue() {
+		log.Println(len(resp.Cookies()))
 		t.Error("Cookie attached to response does not correspond to the session")
 	}
 }
@@ -106,7 +102,7 @@ func TestUserLoggedInHandler(t *testing.T) {
 func TestCurrentUserBadCookie(t *testing.T) {
 	addTestUserToDatabase(true)
 
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 
 	if a.CurrentUser(req) != nil {
 		t.Error("No cookie in request should return empty string")
@@ -127,7 +123,7 @@ func TestCurrentUserBadCookie(t *testing.T) {
 func TestCurrentUserGoodCookie(t *testing.T) {
 	addTestUserToDatabase(true)
 
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	// Create the user logged in session
 	ses, _ := a.sesHandler.CreateSession("dadams", true)
 	req.AddCookie(ses.SessionCookie())
@@ -144,7 +140,7 @@ func TestCurrentUserFromContext(t *testing.T) {
 
 	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", email: "test%40gmail.com"}
 	ses, _ := a.sesHandler.CreateSession(user.Username, false)
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(NewUserContext(req.Context(), user))
 
 	userFromContext := a.CurrentUser(req)
@@ -168,7 +164,7 @@ func TestCurrentUserFromContext(t *testing.T) {
 func TestIsCurrentUser(t *testing.T) {
 	addTestUserToDatabase(true)
 
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	// Create the user logged in session
 	ses, _ := a.sesHandler.CreateSession("dadams", true)
 	req.AddCookie(ses.SessionCookie())

@@ -55,14 +55,14 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	// POST request should log user in
 	resp, err := client.Do(req)
 	loc, _ := resp.Location()
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther || loc.Path != a.RedirectAfterLogin {
+	if err == nil || len(resp.Cookies()) != 1 || resp.StatusCode != http.StatusSeeOther || loc.Path != a.RedirectAfterLogin {
 		log.Println(err)
 		log.Println(len(resp.Cookies()))
 		log.Println(resp.Status)
 		t.Error("Should be redirected after a successful login")
 	}
 	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
-	if ses == nil || ses.IsPersistant() || ses.Username() != "dadams" {
+	if ses == nil || ses.IsPersistant() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
 		t.Error("The cookie on a login response is not valid")
 	}
 
@@ -71,7 +71,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
 	redirectedURL, _ := resp.Location()
-	if err != nil || redirectedURL.Path != a.RedirectAfterLogin || len(resp.Cookies()) == 0 {
+	if err == nil || redirectedURL.Path != a.RedirectAfterLogin || len(resp.Cookies()) != 1 {
 		log.Println(err)
 		log.Println(redirectedURL.Path)
 		log.Println(len(resp.Cookies()))
@@ -82,8 +82,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	}
 
 	// Log user out
-	log.Println(len(resp.Cookies()))
-	ses, _ = a.sesHandler.ParseSessionCookie(resp.Cookies()[1])
+	ses, _ = a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
 	cookie := ses.SessionCookie()
 	a.sesHandler.DestroySession(ses)
 
@@ -126,10 +125,12 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	// POST request should not log user in with wrong password
 	resp, err := client.Do(req)
 	loc, _ := resp.Location()
-	if err == nil || len(resp.Cookies()) != 0 || loc.Path != a.LoginURL {
+	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	_, errs := ses.Flashes()
+	if err == nil || len(resp.Cookies()) != 1 || loc.Path != a.LoginURL || ses.IsUserLoggedIn() || len(errs) != 1 {
 		log.Println(resp.Status)
-		log.Println(num)
 		log.Println(resp.Location())
+		log.Println(errs)
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 	w = httptest.NewRecorder()
@@ -141,7 +142,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	// POST request should not log user in
 	resp, _ = client.Do(req)
 	loc, _ = resp.Location()
-	if resp.StatusCode != http.StatusSeeOther || len(resp.Cookies()) != 0 || loc.Path != a.LoginURL {
+	if resp.StatusCode != http.StatusSeeOther || len(resp.Cookies()) != 1 || loc.Path != a.LoginURL {
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
@@ -170,7 +171,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 
 	// POST request should log user in
 	resp, err := client.Do(req)
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther {
+	if err == nil || len(resp.Cookies()) != 1 || resp.StatusCode != http.StatusSeeOther {
 		t.Error("Should be redirected after a successful login")
 	}
 
@@ -219,7 +220,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 
 	// POST request should log user in
 	resp, err := client.Do(req)
-	if err != nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther {
+	if err == nil || len(resp.Cookies()) == 0 || resp.StatusCode != http.StatusSeeOther {
 		t.Error("Should be redirected after a successful login")
 	}
 
@@ -287,8 +288,11 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 
 	// POST request should log user in
 	resp, err := client.Do(req)
-	if err == nil || len(resp.Cookies()) != 0 || resp.StatusCode != http.StatusSeeOther {
+	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if err == nil || ses == nil || ses.IsUserLoggedIn() || resp.StatusCode != http.StatusSeeOther {
 		log.Println(err)
+		log.Println(ses)
+		log.Println(ses.IsUserLoggedIn())
 		t.Error("User should not be able to log in if they are unverified")
 	}
 

@@ -103,7 +103,7 @@ func TestPasswordResetForm(t *testing.T) {
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err != nil || resp.StatusCode != http.StatusAccepted || redirectURL.Path != a.LoginURL {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.LoginURL {
 		log.Println(err)
 		log.Println(resp.Status)
 		log.Println(resp.Location())
@@ -221,7 +221,7 @@ func TestSendPasswordResetEmail(t *testing.T) {
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err != nil || resp.StatusCode != http.StatusAccepted || redirectURL.Path != a.RedirectAfterResetRequest {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.RedirectAfterResetRequest {
 		t.Error("Password email not sent properly")
 	}
 }

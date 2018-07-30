@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/dadamssolutions/adaptd"
-	"github.com/dadamssolutions/authandler/handlers/session/sessions"
 )
 
 // LoginAdapter handles the login GET and POST requests
@@ -23,17 +22,16 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 	}
 
 	postHandler := adaptd.Adapt(http.HandlerFunc(a.logUserIn),
-		adaptd.OnCheck(f, http.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User already logged in"),
 		a.CSRFPostAdapter(a.LoginURL, "CSRF token not valid for log in request"),
 	)
 
-	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterLogin, a.LoginURL, adaptd.CheckAndRedirect(f, a.RedirectAfterLogin, "User requesting login page is logged in", http.StatusSeeOther))
+	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterLogin, a.LoginURL, adaptd.CheckAndRedirect(f, a.AttachSessionCookie()(http.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther)), "User requesting login page is logged in"))
 }
 
 func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
-	var ses *sessions.Session
+	ses := SessionFromContext(r.Context())
 	// If the user is authenticated already, then we just redirect
-	if a.userIsAuthenticated(w, r) {
+	if ses.IsUserLoggedIn() {
 		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
 		return
 	}
@@ -44,15 +42,19 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromDB(a.db, a.UsersTableName, "username", username)
 	// If the user has provided correct credentials, then we log them in by creating a session.
 	if user != nil && user.IsValidated() && a.CompareHashAndPassword(user.passHash, []byte(password)) == nil {
-		ses, _ = a.sesHandler.CreateSession(username, rememberMe)
+		ses = a.sesHandler.CopySession(ses, rememberMe)
+		a.sesHandler.LogUserIn(ses, username)
+		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
-	// If the session was created, then the user is logged in
-	if ses != nil {
+
+	if ses.IsUserLoggedIn() {
 		log.Printf("User %v logged in successfully. Redirecting to %v\n", username, a.RedirectAfterLogin)
-		a.sesHandler.AttachCookie(w, ses)
-		return
+	} else {
+		log.Println("User login failed, redirecting back to login page")
+		err := NewError(BadLogin)
+		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		ses.AddError(err.Error())
+		a.sesHandler.UpdateSessionIfValid(ses)
 	}
-	log.Println("User login failed, redirecting back to login page")
-	err := NewError(BadLogin)
-	*r = *r.WithContext(NewErrorContext(r.Context(), err))
+	*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 }

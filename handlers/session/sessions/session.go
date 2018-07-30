@@ -9,7 +9,9 @@ This package should be not be uses without seshandler which manages sessions for
 package sessions
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -56,6 +58,7 @@ func (s *Session) SessionCookie() *http.Cookie {
 	if !s.IsValid() {
 		return nil
 	}
+	s.cookie.Value = s.CookieValue()
 	return s.cookie
 }
 
@@ -162,18 +165,19 @@ func (s *Session) IsValid() bool {
 func (s *Session) IsUserLoggedIn() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.values["username"][0] != ""
+	return s.values["username"][0] != "" && s.encryptedUsername != ""
 }
 
 // LogUserIn logs a user into a session.
 // It returns a non-nil error if there is already a user logged into that session.
-func (s *Session) LogUserIn(username string) error {
+func (s *Session) LogUserIn(username, encryptedUsername string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.values["username"][0] != "" && s.values["username"][0] != username {
 		return errors.New("Trying to log a user into a session that already has a user")
 	}
 	s.values["username"][0] = username
+	s.encryptedUsername = encryptedUsername
 	return nil
 }
 
@@ -182,6 +186,7 @@ func (s *Session) LogUserOut() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.values["username"][0] = ""
+	s.encryptedUsername = ""
 }
 
 // Equals returns whether other session is equal to this session
@@ -194,13 +199,13 @@ func (s *Session) Equals(other *Session, hash func(string) string) bool {
 }
 
 // AddError adds an error to the session flashes
-func (s *Session) AddError(err string) {
-	s.addToFlashes(errorKey, err)
+func (s *Session) AddError(err ...string) {
+	s.addToFlashes(errorKey, err...)
 }
 
 // AddMessage adds an error to the session flashes
-func (s *Session) AddMessage(msg string) {
-	s.addToFlashes(msgKey, msg)
+func (s *Session) AddMessage(msg ...string) {
+	s.addToFlashes(msgKey, msg...)
 }
 
 // Flashes gets and deletes the flash messages.
@@ -214,8 +219,31 @@ func (s *Session) Flashes() ([]string, []string) {
 	return s.values[msgKey], s.values[errorKey]
 }
 
-func (s *Session) addToFlashes(key, val string) {
+// ValuesAsText converts the values into text for storage in a database.
+func (s *Session) ValuesAsText() string {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	b, err := json.Marshal(s.values)
+	if err != nil {
+		log.Println(err)
+	}
+	return string(b)
+}
+
+// TextToValues converts the string to a values map for the session.
+// It returns an error if the string cannot be converted.
+func (s *Session) TextToValues(text string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.values[key] = append(s.values[key], val)
+	err := json.Unmarshal([]byte(text), &s.values)
+	if err != nil {
+		return errors.New("Cannot convert text to values for session")
+	}
+	return nil
+}
+
+func (s *Session) addToFlashes(key string, val ...string) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.values[key] = append(s.values[key], val...)
 }

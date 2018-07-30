@@ -1,6 +1,7 @@
 package authandler
 
 import (
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,28 +20,30 @@ func TestUserLogOutHandler(t *testing.T) {
 	if err == nil {
 		t.Error("Request not redirected")
 	}
-	if resp.StatusCode != http.StatusFound {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Error("Logout with no user logged in should just redirect to \"/\"")
 	}
 
-	// Cookie present. User should be logged out and session destroyed.
+	// Cookie present. User should be logged out.
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
 	if err == nil {
 		t.Error("Request not redirected")
 	}
-	sesTest, err := a.sesHandler.UpdateSessionIfValid(ses)
-	if resp.StatusCode != http.StatusFound || sesTest != nil || err == nil {
+	newSession, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if resp.StatusCode != http.StatusSeeOther || newSession.IsUserLoggedIn() {
+		log.Println(ses.IsUserLoggedIn())
 		t.Error("User not logged out properly")
 	}
 
-	// Cookie present, but already destroyed. User should be redirected
+	// Cookie present, but already logged out. User should be redirected
 	resp, err = client.Do(req)
 	if err == nil {
 		t.Error("Request not redirected")
 	}
-	sesTest, err = a.sesHandler.UpdateSessionIfValid(ses)
-	if resp.StatusCode != http.StatusFound || sesTest != nil || err == nil {
+	newSession, _ = a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if resp.StatusCode != http.StatusSeeOther || newSession.IsUserLoggedIn() {
+		log.Println(ses.IsUserLoggedIn())
 		t.Error("User not logged out properly")
 	}
 }
