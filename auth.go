@@ -121,7 +121,7 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 	ah.domainName = domainName
 	ah.LoginURL = "/login"
 	ah.LogOutURL = "/logout"
-	ah.RedirectAfterLogin = "/users"
+	ah.RedirectAfterLogin = "/user"
 	ah.SignUpURL = "/sign_up"
 	ah.RedirectAfterSignUp = "/signed_up"
 	ah.SignUpVerificationURL = "/verify_sign_up"
@@ -133,29 +133,29 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 
 // AddDefaultHandlers adds the standard handlers needed for the auth handler.
 func (a *HTTPAuth) AddDefaultHandlers(home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	http.Handle("/", a.MustHaveAdapters(nil)(home))
+	http.Handle("/", a.MustHaveAdapters()(home))
 	http.Handle(a.SignUpURL, a.SignUpAdapter()(signUp))
-	http.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(nil)(afterSignUp))
+	http.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters()(afterSignUp))
 	http.Handle(a.SignUpVerificationURL, a.SignUpVerificationAdapter()(verifySignUp))
 	http.Handle(a.LoginURL, a.LoginAdapter()(logIn))
-	http.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(nil)(afterLogIn))
+	http.Handle(a.RedirectAfterLogin, a.MustHaveAdapters()(afterLogIn))
 	http.Handle(a.LogOutURL, a.LogoutAdapter("/")(logOut))
 	http.Handle(a.PasswordResetURL, a.PasswordResetAdapter()(passReset))
-	http.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(nil)(passResetSent))
+	http.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
 	http.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
 }
 
 // AddDefaultHandlersWithMux adds the standard handlers needed for the auth handler to the ServeMux.
 func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	mux.Handle("/", a.MustHaveAdapters(nil)(home))
+	mux.Handle("/", a.MustHaveAdapters()(home))
 	mux.Handle(a.SignUpURL, a.SignUpAdapter()(signUp))
-	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(nil)(afterSignUp))
+	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters()(afterSignUp))
 	mux.Handle(a.SignUpVerificationURL, a.SignUpVerificationAdapter()(verifySignUp))
 	mux.Handle(a.LoginURL, a.LoginAdapter()(logIn))
-	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(nil)(afterLogIn))
+	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters()(afterLogIn))
 	mux.Handle(a.LogOutURL, a.LogoutAdapter("/")(logOut))
 	mux.Handle(a.PasswordResetURL, a.PasswordResetAdapter()(passReset))
-	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(nil)(passResetSent))
+	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
 	mux.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
 }
 
@@ -193,7 +193,7 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 // MustHaveAdapters are the adapters that we must have for essentially every Handler
 //
 // As of now, they are EnsureHHTPS. LoadOrCreateSession, and AttachSessionCookie (which is at the end)
-func (a *HTTPAuth) MustHaveAdapters(otherAdapters []adaptd.Adapter) adaptd.Adapter {
+func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		otherAdapters = append([]adaptd.Adapter{adaptd.EnsureHTTPS(false), a.LoadOrCreateSession()}, otherAdapters...)
 		otherAdapters = append(otherAdapters, a.AttachSessionCookie())
@@ -207,7 +207,7 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	adapters := []adaptd.Adapter{
 		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.AttachSessionCookie()(http.RedirectHandler(a.LoginURL, http.StatusSeeOther)), "User not authenticated"),
 	}
-	return a.MustHaveAdapters(adapters)
+	return a.MustHaveAdapters(adapters...)
 }
 
 // CSRFPostAdapter handles the CSRF token verification for POST requests.
@@ -230,10 +230,10 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 		adapters := []adaptd.Adapter{
 			adaptd.AddCookieWithFunc(csrf.CookieName, a.csrfHandler.GenerateNewToken),
 		}
-
 		return adaptd.Adapt(h, adapters...)
 	}
 }
+
 func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		onSuccess := a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther))
@@ -243,7 +243,7 @@ func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectO
 		}
 		extraAdapters = append(extraAdapters, a.CSRFGetAdapter())
 
-		return adaptd.Adapt(h, a.MustHaveAdapters(append(adapters, extraAdapters...)))
+		return adaptd.Adapt(h, a.MustHaveAdapters(append(adapters, extraAdapters...)...))
 	}
 }
 
