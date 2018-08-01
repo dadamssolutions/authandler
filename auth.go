@@ -234,12 +234,15 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 	}
 }
 
-func (a *HTTPAuth) standardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
+// StandardPostAndGetAdapter uses other adapters to do a standard type of POST/GET request.
+//
+// If the request is POST, then the request is checked for a CSRF token. If the token is verified
+func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError, logOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		onSuccess := a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther))
 		onError := a.AttachSessionCookie()(http.RedirectHandler(redirectOnError, http.StatusSeeOther))
 		adapters := []adaptd.Adapter{
-			PostAndOtherOnError(postHandler, onSuccess, onError),
+			PostAndOtherOnError(a.CSRFPostAdapter(redirectOnError, logOnError)(postHandler), onSuccess, onError),
 		}
 		extraAdapters = append(extraAdapters, a.CSRFGetAdapter())
 

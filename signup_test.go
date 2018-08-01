@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/dadamssolutions/authandler/handlers/csrf"
 )
 
 func TestSignUp(t *testing.T) {
@@ -17,7 +19,11 @@ func TestSignUp(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK || resp.Cookies()[0].Value == "" {
+	cookie := resp.Cookies()[0]
+	if cookie.Name != csrf.CookieName {
+		cookie = resp.Cookies()[1]
+	}
+	if err != nil || resp.StatusCode != http.StatusOK || cookie.Value == "" {
 		t.Error("Valid password request returned unexpected response")
 	}
 }
@@ -45,6 +51,9 @@ func TestSignUpPost(t *testing.T) {
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
 	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.RedirectAfterSignUp {
+		log.Println(err)
+		log.Println(resp.Status)
+		log.Println(redirectURL.Path)
 		t.Error("Sign up email not sent properly")
 	}
 
@@ -184,5 +193,66 @@ func TestUserCannotValidateIfLoggedIn(t *testing.T) {
 	}
 
 	removeTestUserFromDatabase()
+}
 
+func TestUsernameExists(t *testing.T) {
+	addTestUserToDatabase(false)
+
+	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	w := httptest.NewRecorder()
+
+	form := url.Values{}
+	form.Set("username", "dadams")
+	form.Set("firstName", "Donnie")
+	form.Set("lastName", "Adams")
+	form.Set("email", "other@gmail.com")
+	form.Set("password", strings.Repeat("d", 32))
+	form.Set("repeatedPassword", strings.Repeat("d", 32))
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.SignUpURL {
+		t.Error("Duplicated username was accepted in error")
+	}
+
+	removeTestUserFromDatabase()
+}
+
+func TestEmailExists(t *testing.T) {
+	addTestUserToDatabase(false)
+
+	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+	w := httptest.NewRecorder()
+
+	form := url.Values{}
+	form.Set("username", "thedadams")
+	form.Set("firstName", "Donnie")
+	form.Set("lastName", "Adams")
+	form.Set("email", "test@gmail.com")
+	form.Set("password", strings.Repeat("d", 32))
+	form.Set("repeatedPassword", strings.Repeat("d", 32))
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
+
+	resp, err := client.Do(req)
+	redirectURL, _ := resp.Location()
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.SignUpURL {
+		t.Error("Duplicated email was accepted in error")
+	}
+
+	removeTestUserFromDatabase()
 }

@@ -9,6 +9,7 @@ const (
 	EmailDoesNotExist
 	TokenError
 	PasswordError
+	PasswordConfirmationError
 	UnknownError
 )
 
@@ -35,6 +36,8 @@ func NewError(code int) Error {
 		return Error{TokenError, "Username or password is not valid"}
 	case PasswordError:
 		return Error{PasswordError, "Username or password is not valid"}
+	case PasswordConfirmationError:
+		return Error{PasswordConfirmationError, "Passwords do not match"}
 	default:
 		return Error{UnknownError, "An unknown error occurred"}
 	}

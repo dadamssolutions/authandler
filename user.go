@@ -94,6 +94,12 @@ func getUserFromDB(db *sql.DB, tableName, col, search string) *User {
 	return &user
 }
 
+func usernameOrEmailExists(db *sql.DB, tableName string, user *User) (bool, bool) {
+	usernameSearch := getUserFromDB(db, tableName, "username", user.Username)
+	emailSearch := getUserFromDB(db, tableName, "email", user.Email())
+	return usernameSearch != nil, emailSearch != nil
+}
+
 func addUserToDatabase(db *sql.DB, tableName string, user *User) error {
 	tx, err := db.Begin()
 	if err != nil {

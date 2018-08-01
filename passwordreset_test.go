@@ -137,7 +137,7 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetURL {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetRequestURL {
 		log.Println(err)
 		log.Println(resp.Status)
 		log.Println(resp.Location())
@@ -172,7 +172,7 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetURL {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetRequestURL {
 		log.Println(err)
 		log.Println(resp.Status)
 		log.Println(resp.Location())
@@ -224,6 +224,8 @@ func TestSendPasswordResetEmail(t *testing.T) {
 	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.RedirectAfterResetRequest {
 		t.Error("Password email not sent properly")
 	}
+
+	removeTestUserFromDatabase()
 }
 
 func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
@@ -242,12 +244,13 @@ func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetURL {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetRequestURL {
 		log.Println(err)
 		log.Println(resp.Status)
 		log.Println(redirectURL.Path)
 		t.Error("Password reset email was sent without CSRF verification")
 	}
+	removeTestUserFromDatabase()
 }
 
 func TestSendPasswordResetEmailBadEmail(t *testing.T) {

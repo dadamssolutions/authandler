@@ -17,9 +17,9 @@ import (
 // The form for the POST request should point back to this handler.
 // The form should have six inputs: firstname, lastname, username, email, password, repeatedPassword
 func (a *HTTPAuth) SignUpAdapter() adaptd.Adapter {
-	postHandler := a.CSRFPostAdapter(a.SignUpURL, "CSRF token not valid for password reset request")(http.HandlerFunc(a.signUp))
+	logOnError := "CSRF token not valid for password reset request"
 
-	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterSignUp, a.SignUpURL)
+	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.signUp), a.RedirectAfterSignUp, a.SignUpURL, logOnError)
 }
 
 // SignUpVerificationAdapter handles verification of sign ups.
@@ -55,26 +55,45 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	}
 	// If the user is not logged in, we get the information and validate it
 	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
+	if password == "" || password != repeatedPassword {
+		log.Println("Sign up passwords did not match, redirecting back to sign up page")
+		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(PasswordConfirmationError)))
+		return
+	}
 	username := url.QueryEscape(r.PostFormValue("username"))
 	addr, err := mail.ParseAddress(r.PostFormValue("email"))
 	if err != nil {
+		log.Printf("Sign up included a bad email address: %v\n", r.PostFormValue("email"))
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
 	firstName, lastName := url.QueryEscape(r.PostFormValue("firstName")), url.QueryEscape(r.PostFormValue("lastName"))
 	hashedPassword, err := a.GenerateHashFromPassword([]byte(password))
 	if err != nil {
+		log.Println("Unable to has password")
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
 	user := &User{FirstName: firstName, LastName: lastName, Username: username, email: addr.Address, passHash: hashedPassword, validated: false}
+
+	if usernameExists, emailExists := usernameOrEmailExists(a.db, a.UsersTableName, user); usernameExists {
+		log.Printf("Username %v exists\n", user.Username)
+		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(UsernameExists)))
+		return
+	} else if emailExists {
+		log.Printf("Email %v exists\n", user.Email())
+		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailExists)))
+		return
+	}
+
+	// Get the reset token and send the message.
 	token := a.passResetHandler.GenerateNewToken(user.Username)
 	data := make(map[string]interface{})
 	data["Link"] = "https://" + a.domainName + a.SignUpVerificationURL + "?" + token.Query()
 	err = a.emailHandler.SendMessage(a.SignUpEmailTemplate, "Welcome!", data, user)
-	if password == "" || password != repeatedPassword || err != nil || !user.isValid() {
+	if err != nil || !user.isValid() {
 		log.Println("User sign up failed, redirecting back to sign up page")
-		err = NewError(BadLogin)
+		err = NewError(PasswordConfirmationError)
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}

@@ -21,11 +21,11 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 		return !a.userIsAuthenticated(w, r)
 	}
 
-	postHandler := adaptd.Adapt(http.HandlerFunc(a.logUserIn),
-		a.CSRFPostAdapter(a.LoginURL, "CSRF token not valid for log in request"),
-	)
+	logOnError := "CSRF token not valid for log in request"
 
-	return a.standardPostAndGetAdapter(postHandler, a.RedirectAfterLogin, a.LoginURL, adaptd.CheckAndRedirect(f, a.AttachSessionCookie()(http.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther)), "User requesting login page is logged in"))
+	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.AttachSessionCookie()(http.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther)), "User requesting login page is logged in")}
+
+	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.logUserIn), a.RedirectAfterLogin, a.LoginURL, logOnError, adapters...)
 }
 
 func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
