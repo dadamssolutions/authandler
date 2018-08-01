@@ -181,8 +181,6 @@ func (sh *Handler) LogUserOut(ses *sessions.Session) error {
 // This is a shorthand for reading flashes from the session and then calling UpdateSession.
 func (sh *Handler) ReadFlashes(ses *sessions.Session) ([]string, []string) {
 	msgs, errs := ses.Flashes()
-	// TODO: when the user reads the flashes of a non-persistant session, the session is replaced and the next request will fail.
-	// TEST that this solution works.
 	err := sh.dataAccess.updateSession(ses, sh.maxLifetime)
 	if err != nil {
 		log.Println(err)

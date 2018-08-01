@@ -300,7 +300,6 @@ func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 	return err == nil
 }
 
-// TEST: If session does not have a username, we should make sure this returns false.
 func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) bool {
 	// Check that the user is logged in by looking for a session cookie
 	ses := SessionFromContext(r.Context())
