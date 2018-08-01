@@ -237,6 +237,13 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 // StandardPostAndGetAdapter uses other adapters to do a standard type of POST/GET request.
 //
 // If the request is POST, then the request is checked for a CSRF token. If the token is verified
+// then the postHandler is called.
+//
+// If the POST handler does not put an error on the Request's context, then the user is redirected
+// to redirectOnSuccess
+// If, at any point, there is an error on the Request's context (either put there by the postHandler
+// or bad CSRF token detection), then the user is redirected to redirectOnError and logOnError
+// is logged to the console.
 func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError, logOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		onSuccess := a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther))
