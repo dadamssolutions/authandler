@@ -15,8 +15,8 @@ func (a *HTTPAuth) LogoutAdapter(redirectOnSuccess string) adaptd.Adapter {
 	}
 
 	adapters := []adaptd.Adapter{
-		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther)), "Requesting logout page, but no user is logged in"),
-		adaptd.CheckAndRedirect(g, a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther)), "User was logged out"),
+		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.RedirectHandler(redirectOnSuccess, http.StatusSeeOther), "Requesting logout page, but no user is logged in"),
+		adaptd.CheckAndRedirect(g, a.RedirectHandler(redirectOnSuccess, http.StatusSeeOther), "User was logged out"),
 	}
 	return a.MustHaveAdapters(adapters...)
 }

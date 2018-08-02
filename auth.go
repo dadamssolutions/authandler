@@ -159,6 +159,12 @@ func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, a
 	mux.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
 }
 
+// RedirectHandler ensures that the authentication aspects are taken care of before the redirect is sent.
+// One should use this instead of http.Redirect or a.RedirectHandler.
+func (a *HTTPAuth) RedirectHandler(url string, code int) http.Handler {
+	return a.AttachSessionCookie()(http.RedirectHandler(url, code))
+}
+
 // LoadOrCreateSession adapter loads a session if the request has the correct cookie.
 // If the request does not have the correct cookie, we create one, attach it to the response,
 // and put it on the Request's context.
@@ -195,7 +201,8 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 // As of now, they are EnsureHHTPS. LoadOrCreateSession, and AttachSessionCookie (which is at the end)
 func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
-		otherAdapters = append([]adaptd.Adapter{adaptd.EnsureHTTPS(false), a.LoadOrCreateSession()}, otherAdapters...)
+		firstAdapters := []adaptd.Adapter{adaptd.EnsureHTTPS(false), a.LoadOrCreateSession()}
+		otherAdapters = append(firstAdapters, otherAdapters...)
 		otherAdapters = append(otherAdapters, a.AttachSessionCookie())
 		return adaptd.Adapt(h, otherAdapters...)
 	}
@@ -205,7 +212,7 @@ func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adap
 // It automatically applies the MustHaveAdapters.
 func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	adapters := []adaptd.Adapter{
-		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.AttachSessionCookie()(http.RedirectHandler(a.LoginURL, http.StatusSeeOther)), "User not authenticated"),
+		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.RedirectHandler(a.LoginURL, http.StatusSeeOther), "User not authenticated"),
 	}
 	return a.MustHaveAdapters(adapters...)
 }
@@ -217,7 +224,7 @@ func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Ad
 	}
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			RedirectOnError(f, http.RedirectHandler(redirectOnError, http.StatusSeeOther), logOnError),
+			RedirectOnError(f, a.RedirectHandler(redirectOnError, http.StatusSeeOther), logOnError),
 		}
 
 		return adaptd.Adapt(h, adapters...)
@@ -246,8 +253,8 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 // is logged to the console.
 func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError, logOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
-		onSuccess := a.AttachSessionCookie()(http.RedirectHandler(redirectOnSuccess, http.StatusSeeOther))
-		onError := a.AttachSessionCookie()(http.RedirectHandler(redirectOnError, http.StatusSeeOther))
+		onSuccess := a.RedirectHandler(redirectOnSuccess, http.StatusSeeOther)
+		onError := a.RedirectHandler(redirectOnError, http.StatusSeeOther)
 		adapters := []adaptd.Adapter{
 			PostAndOtherOnError(a.CSRFPostAdapter(redirectOnError, logOnError)(postHandler), onSuccess, onError),
 		}

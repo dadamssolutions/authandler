@@ -13,7 +13,7 @@ func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 	num = 0
 	addTestUserToDatabase(true)
 
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -36,7 +36,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	num = 0
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -71,6 +71,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
 	redirectedURL, _ := resp.Location()
+	log.Println(resp.Cookies())
 	if err == nil || redirectedURL.Path != a.RedirectAfterLogin || len(resp.Cookies()) != 1 {
 		log.Println(err)
 		log.Println(redirectedURL.Path)
@@ -106,7 +107,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	num = 0
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -153,7 +154,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	addTestUserToDatabase(true)
 	num = 0
 	w := httptest.NewRecorder()
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -202,7 +203,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	num = 0
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -239,7 +240,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	addTestUserToDatabase(true)
 	num = 0
 
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	ts.URL = ts.URL + "/login"
 	client := ts.Client()
@@ -271,7 +272,7 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 	addTestUserToDatabase(false)
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.LoginAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect

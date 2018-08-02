@@ -8,7 +8,7 @@ import (
 )
 
 func TestUserLogOutHandler(t *testing.T) {
-	ts := httptest.NewTLSServer(a.LogoutAdapter("/")(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LogoutAdapter("/"))(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -27,7 +27,7 @@ func TestUserLogOutHandler(t *testing.T) {
 	// Cookie present. User should be logged out.
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
-	if err == nil {
+	if err == nil || len(resp.Cookies()) != 1 {
 		t.Error("Request not redirected")
 	}
 	newSession, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])

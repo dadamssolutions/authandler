@@ -62,21 +62,23 @@ func removeTestUserFromDatabase() {
 
 func TestUserNotLoggedInHandler(t *testing.T) {
 	num = 0
-	ts := httptest.NewTLSServer(a.RedirectIfUserNotAuthenticated()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	resp, err := client.Get(ts.URL)
 	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 || len(resp.Cookies()) == 0 {
-		log.Printf("Status code: %v with error: %v\n", resp.StatusCode, err)
+		log.Println(err)
+		log.Println(resp.Status)
+		log.Println(len(resp.Cookies()))
 		t.Error("Not redirected when user is not logged in")
 	}
 }
 
 func TestUserLoggedInHandler(t *testing.T) {
 	num = 0
-	ts := httptest.NewTLSServer(a.RedirectIfUserNotAuthenticated()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect

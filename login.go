@@ -23,7 +23,7 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 
 	logOnError := "CSRF token not valid for log in request"
 
-	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.AttachSessionCookie()(http.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther)), "User requesting login page is logged in")}
+	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User requesting login page is logged in")}
 
 	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.logUserIn), a.RedirectAfterLogin, a.LoginURL, logOnError, adapters...)
 }
