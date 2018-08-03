@@ -102,7 +102,7 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 		return nil, errors.New("CSRF handler could not be created")
 	}
 	// Password reset token handler.
-	ah.passResetHandler = passreset.NewHandler(db, passwordResetTimeout, secret)
+	ah.passResetHandler = passreset.NewHandler(db, "pass_reset_tokens", passwordResetTimeout, secret)
 	if ah.passResetHandler == nil {
 		// Password reset handler could not be created, likely a database problem.
 		return nil, errors.New("Password reset handler could not be created")

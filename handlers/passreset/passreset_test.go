@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	passHand = NewHandler(db, time.Minute, bytes.Repeat([]byte("d"), 16))
+	passHand = NewHandler(db, "pass_reset_tokens", time.Minute, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Fatal(err)
 	}
