@@ -40,8 +40,8 @@ func (a *HTTPAuth) SignUpVerificationAdapter() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
 			adaptd.EnsureHTTPS(false),
-			RedirectOnError(f, http.RedirectHandler(a.SignUpURL, http.StatusUnauthorized), "Invalid sign up validation query"),
-			RedirectOnError(a.verifySignUp, http.RedirectHandler(a.SignUpURL, http.StatusUnauthorized), "Invalid sign up validation query"),
+			RedirectOnError(f, a.RedirectHandler(a.SignUpURL, http.StatusUnauthorized), "Invalid sign up validation query"),
+			RedirectOnError(a.verifySignUp, a.RedirectHandler(a.SignUpURL, http.StatusUnauthorized), "Invalid sign up validation query"),
 		}
 		return adaptd.Adapt(h, adapters...)
 	}
