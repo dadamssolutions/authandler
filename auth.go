@@ -218,8 +218,16 @@ func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adap
 // RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
 // It automatically applies the MustHaveAdapters.
 func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
+	f := func(w http.ResponseWriter, r *http.Request) bool {
+		ses := SessionFromContext(r.Context())
+		authenticated := a.userIsAuthenticated(w, r)
+		if !authenticated && ses != nil {
+			ses.AddError("You must log in to access " + r.URL.Path)
+		}
+		return authenticated
+	}
 	adapters := []adaptd.Adapter{
-		adaptd.CheckAndRedirect(a.userIsAuthenticated, a.RedirectHandler(a.LoginURL, http.StatusSeeOther), "User not authenticated"),
+		adaptd.CheckAndRedirect(f, a.RedirectHandler(a.LoginURL, http.StatusSeeOther), "User not authenticated"),
 	}
 	return a.MustHaveAdapters(adapters...)
 }
@@ -263,6 +271,7 @@ func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectO
 		onSuccess := a.RedirectHandler(redirectOnSuccess, http.StatusSeeOther)
 		onError := a.RedirectHandler(redirectOnError, http.StatusSeeOther)
 		adapters := []adaptd.Adapter{
+			a.LoadOrCreateSession(),
 			PostAndOtherOnError(a.CSRFPostAdapter(redirectOnError, logOnError)(postHandler), onSuccess, onError),
 		}
 		extraAdapters = append(extraAdapters, a.CSRFGetAdapter())
@@ -315,6 +324,8 @@ func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 		if err != nil {
 			log.Println("Could not log user out")
 			*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		} else {
+			ses.AddMessage("You have been successfully logged out")
 		}
 	}
 	*r = *r.WithContext(NewSessionContext(r.Context(), ses))
