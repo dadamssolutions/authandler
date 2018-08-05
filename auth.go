@@ -1,3 +1,10 @@
+/*
+Package authandler provides a self-contained authentication handler using a Postgresql database backend.
+
+The handler will create all the necessary tables it needs or the user can provide a tableName that exists and has the appropriate columns for the application. For example, the table where the user information is stored (by default called 'users') should have at least username (PRIMARY KEY), fname, lname, email, role (int), validated (bool), passhash (char(80)).
+
+authandler also "handles" all session information and csrf token generation and validation. That is, this package is designed to be an automatic, all-in-one solution. The user should not have to worry about the logic of authentication and validation, but should know who is logged in, if any.
+*/
 package authandler
 
 import (

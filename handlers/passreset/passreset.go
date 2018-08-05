@@ -1,3 +1,6 @@
+/*Package passreset provies a handler for password reset token generation, validation, and deletion.
+Tokens are one-time use and can be expired without use.
+*/
 package passreset
 
 import (

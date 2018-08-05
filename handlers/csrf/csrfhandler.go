@@ -1,3 +1,8 @@
+/*Package csrf provides a functionality for creating, destroying, validating, and attaching
+Cross-site Forgery Request protection tokens.
+
+The tokens are attached as cookies to the request and are good for a single request. The caller can set a timeout duration as well that enables tokens to expire without being used.
+*/
 package csrf
 
 import (
@@ -31,7 +36,8 @@ func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
 	return &Handler{sh}
 }
 
-// GenerateNewToken generates a new token for protecting against CSRF
+// GenerateNewToken generates a new token for protecting against CSRF. The token is attached to the
+// response writer as a cookie.
 func (c *Handler) GenerateNewToken(w http.ResponseWriter) error {
 	ses, err := c.CreateSession("csrf", false)
 	if err != nil {
@@ -41,7 +47,7 @@ func (c *Handler) GenerateNewToken(w http.ResponseWriter) error {
 	return c.AttachCookie(w, ses)
 }
 
-// ValidToken verifies that a CSRF token is valid and then destroys it
+// ValidToken verifies that a CSRF token is valid and then destroys it.
 func (c *Handler) ValidToken(r *http.Request) error {
 	ses, err := c.ParseSessionFromRequest(r)
 	if err != nil {

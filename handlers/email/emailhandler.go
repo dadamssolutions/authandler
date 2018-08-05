@@ -1,3 +1,5 @@
+/*Package email is an email handler used for sending email messages like sign up verifications and password reset requests.
+ */
 package email
 
 import (

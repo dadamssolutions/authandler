@@ -1,3 +1,6 @@
+/*Package smtpauth provides implementations of the smtp.Auth interface for sending messages
+with the LOGIN authentication mechanism, only allowed of SSL/TLS connections.
+*/
 package smtpauth
 
 import (
