@@ -196,7 +196,6 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			return nil, err
 		}
 		// We have the ids so we break and return
-		log.Printf("%v with selector %v created\n", s.tableName, ses.SelectorID())
 		break
 	}
 	return ses, tx.Commit()
@@ -245,7 +244,6 @@ func (s sesDataAccess) destroySession(ses *sessions.Session) error {
 	queryString := fmt.Sprintf(deleteSession, s.tableName, ses.SelectorID())
 	tx.Exec(queryString)
 	ses.Destroy()
-	log.Printf("%v with selector %v destroyed\n", s.tableName, ses.SelectorID())
 	return tx.Commit()
 }
 
