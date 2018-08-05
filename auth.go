@@ -260,7 +260,7 @@ func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectO
 		}
 		extraAdapters = append(extraAdapters, a.CSRFGetAdapter())
 
-		return adaptd.Adapt(h, a.MustHaveAdapters(append(adapters, extraAdapters...)...))
+		return adaptd.Adapt(h, append(adapters, extraAdapters...)...)
 	}
 }
 
