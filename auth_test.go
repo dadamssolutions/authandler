@@ -42,6 +42,21 @@ func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Test handler"))
 }
 
+func deleteTestTables(db *sql.DB, tableName ...string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil
+	}
+	for i := range tableName {
+		_, err = tx.Exec(fmt.Sprintf(deleteTestTableSQL, tableName[i]))
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func addTestUserToDatabase(validated bool) {
 	// Add user to the database for testing
 	pass := strings.Repeat("d", 64)
@@ -99,6 +114,76 @@ func TestUserLoggedInHandler(t *testing.T) {
 		log.Println(len(resp.Cookies()))
 		t.Error("Cookie attached to response does not correspond to the session")
 	}
+}
+
+func TestUserHasRole(t *testing.T) {
+	addTestUserToDatabase(true)
+	num = 0
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfNoPermission(0))(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
+
+	// Create the user logged in session
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+	user := a.CurrentUser(req)
+
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
+		t.Error("Redirected, but user has permission")
+	}
+
+	user.Role = Admin
+	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
+
+	// Create the user logged in session
+	ses, _ = a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK || num != 2 {
+		t.Error("Redirected, but user has permission")
+	}
+
+	removeTestUserFromDatabase()
+}
+
+func TestUserDoesNotHaveRole(t *testing.T) {
+	addTestUserToDatabase(true)
+	num = 0
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfNoPermission(2))(testHand))
+	defer ts.Close()
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
+
+	// Create the user logged in session
+	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+	user := a.CurrentUser(req)
+
+	resp, err := client.Do(req)
+	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
+		t.Error("Not redirected when user does not have permission")
+	}
+
+	user.Role = Manager
+	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
+
+	// Create the user logged in session
+	ses, _ = a.sesHandler.CreateSession("dadams", true)
+	req.AddCookie(ses.SessionCookie())
+
+	resp, err = client.Do(req)
+	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
+		t.Error("Not redirected when user does not have permission")
+	}
+
+	removeTestUserFromDatabase()
 }
 
 func TestCurrentUserBadCookie(t *testing.T) {
@@ -231,7 +316,7 @@ func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []b
 
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	db, err := sql.Open("postgres", "user=test dbname=house-pts-test sslmode=disable")
+	db, err := sql.Open("postgres", "user=test dbname=test sslmode=disable")
 	eh := email.NewSender("House Points Test", hostname, "587", testEmail1, password)
 	eh.SendMail = SendMail
 	a, err = DefaultHTTPAuth(db, "users", "www.test.com", eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))
@@ -244,6 +329,6 @@ func TestMain(m *testing.M) {
 	exitCode := m.Run()
 	// Wait a little bit for the sessions to be removed
 	time.Sleep(time.Second)
-	deleteUsersTestTable(a.db, a.UsersTableName)
+	deleteTestTables(a.db, a.UsersTableName, a.sesHandler.GetTableName(), a.csrfHandler.GetTableName(), a.passResetHandler.GetTableName())
 	os.Exit(exitCode)
 }

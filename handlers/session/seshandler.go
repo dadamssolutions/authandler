@@ -62,6 +62,11 @@ func newHandler(da sesDataAccess, timeout time.Duration) *Handler {
 	return ses
 }
 
+// GetTableName returns the table name for this handler.
+func (sh *Handler) GetTableName() string {
+	return sh.dataAccess.tableName
+}
+
 // CreateSession generates a new session for the given user ID.
 func (sh *Handler) CreateSession(username string, persistant bool) (*sessions.Session, error) {
 	ses, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistant)

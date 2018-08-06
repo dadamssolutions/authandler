@@ -40,19 +40,6 @@ func createUsersTable(db *sql.DB, tableName string) error {
 	return tx.Commit()
 }
 
-func deleteUsersTestTable(db *sql.DB, tableName string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil
-	}
-	_, err = tx.Exec(fmt.Sprintf(deleteUsersTestTableSQL, tableName))
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
 // HTTPAuth is a general handler that authenticates a user for http requests.
 // It also handles csrf token generation and validation.
 type HTTPAuth struct {
@@ -232,6 +219,23 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	return a.MustHaveAdapters(adapters...)
 }
 
+// RedirectIfNoPermission is like http.HandleFunc except it is verified the user is logged in and
+// has permission to view the page.
+func (a *HTTPAuth) RedirectIfNoPermission(minRole Role) adaptd.Adapter {
+	f := func(w http.ResponseWriter, r *http.Request) bool {
+		a.userIsAuthenticated(w, r)
+		user := UserFromContext(r.Context())
+		if user == nil {
+			return false
+		}
+		return user.Role.HasRole(minRole)
+	}
+	adapters := []adaptd.Adapter{
+		adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User does not have permission"),
+	}
+	return a.MustHaveAdapters(adapters...)
+}
+
 // CSRFPostAdapter handles the CSRF token verification for POST requests.
 func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) error {
@@ -271,7 +275,6 @@ func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectO
 		onSuccess := a.RedirectHandler(redirectOnSuccess, http.StatusSeeOther)
 		onError := a.RedirectHandler(redirectOnError, http.StatusSeeOther)
 		adapters := []adaptd.Adapter{
-			a.LoadOrCreateSession(),
 			PostAndOtherOnError(a.CSRFPostAdapter(redirectOnError, logOnError)(postHandler), onSuccess, onError),
 		}
 		extraAdapters = append(extraAdapters, a.CSRFGetAdapter())

@@ -12,7 +12,7 @@ import (
 )
 
 var csrfHand *Handler
-var db, err = sql.Open("postgres", "user=test dbname=house-pts-test sslmode=disable")
+var db, err = sql.Open("postgres", "user=test dbname=test sslmode=disable")
 
 func TestTokenGeneration(t *testing.T) {
 	w := httptest.NewRecorder()

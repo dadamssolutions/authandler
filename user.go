@@ -16,13 +16,13 @@ const (
 	Supervisor
 	Admin
 
-	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', PRIMARY KEY (username));"
-	addUserToDatabaseSQL    = "INSERT INTO %v (username, fname, lname, email, validated, pass_hash) VALUES ('%v','%v','%v','%v',false,'%v');"
-	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %v WHERE %v = '%v';"
-	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = '%v';"
-	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = '%v';"
-	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
-	deleteUsersTestTableSQL = "DROP TABLE %v;"
+	createUsersTableSQL    = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', PRIMARY KEY (username));"
+	addUserToDatabaseSQL   = "INSERT INTO %v (username, fname, lname, email, validated, pass_hash) VALUES ('%v','%v','%v','%v',false,'%v');"
+	getUserInfoSQL         = "SELECT username, fname, lname, email, role, validated FROM %v WHERE %v = '%v';"
+	getUserPasswordHashSQL = "SELECT pass_hash FROM %v WHERE username = '%v';"
+	validateUserSQL        = "UPDATE %v SET validated = true WHERE username = '%v';"
+	updateUserPasswordSQL  = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
+	deleteTestTableSQL     = "DROP TABLE %v;"
 )
 
 // Role is represents the role of a user.
