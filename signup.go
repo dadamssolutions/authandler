@@ -17,9 +17,15 @@ import (
 // The form for the POST request should point back to this handler.
 // The form should have six inputs: firstname, lastname, username, email, password, repeatedPassword
 func (a *HTTPAuth) SignUpAdapter() adaptd.Adapter {
+	f := func(w http.ResponseWriter, r *http.Request) bool {
+		return !a.userIsAuthenticated(w, r)
+	}
+
 	logOnError := "CSRF token not valid for password reset request"
 
-	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.signUp), a.RedirectAfterSignUp, a.SignUpURL, logOnError)
+	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User requesting login page is logged in")}
+
+	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.signUp), a.RedirectAfterSignUp, a.SignUpURL, logOnError, adapters...)
 }
 
 // SignUpVerificationAdapter handles verification of sign ups.
