@@ -128,29 +128,29 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 // AddDefaultHandlers adds the standard handlers needed for the auth handler.
 func (a *HTTPAuth) AddDefaultHandlers(home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
 	http.Handle("/", a.MustHaveAdapters()(home))
-	http.Handle(a.SignUpURL, a.SignUpAdapter()(signUp))
+	http.Handle(a.SignUpURL, a.MustHaveAdapters(a.SignUpAdapter())(signUp))
 	http.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters()(afterSignUp))
-	http.Handle(a.SignUpVerificationURL, a.SignUpVerificationAdapter()(verifySignUp))
-	http.Handle(a.LoginURL, a.LoginAdapter()(logIn))
-	http.Handle(a.RedirectAfterLogin, a.MustHaveAdapters()(afterLogIn))
-	http.Handle(a.LogOutURL, a.LogoutAdapter("/")(logOut))
-	http.Handle(a.PasswordResetURL, a.PasswordResetAdapter()(passReset))
+	http.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(a.SignUpVerificationAdapter())(verifySignUp))
+	http.Handle(a.LoginURL, a.MustHaveAdapters(a.LoginAdapter())(logIn))
+	http.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(afterLogIn))
+	http.Handle(a.LogOutURL, a.MustHaveAdapters(a.LogoutAdapter("/"))(logOut))
+	http.Handle(a.PasswordResetURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passReset))
 	http.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
-	http.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
+	http.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passResetRequest))
 }
 
 // AddDefaultHandlersWithMux adds the standard handlers needed for the auth handler to the ServeMux.
 func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
 	mux.Handle("/", a.MustHaveAdapters()(home))
-	mux.Handle(a.SignUpURL, a.SignUpAdapter()(signUp))
+	mux.Handle(a.SignUpURL, a.MustHaveAdapters(a.SignUpAdapter())(signUp))
 	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters()(afterSignUp))
-	mux.Handle(a.SignUpVerificationURL, a.SignUpVerificationAdapter()(verifySignUp))
-	mux.Handle(a.LoginURL, a.LoginAdapter()(logIn))
-	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters()(afterLogIn))
-	mux.Handle(a.LogOutURL, a.LogoutAdapter("/")(logOut))
-	mux.Handle(a.PasswordResetURL, a.PasswordResetAdapter()(passReset))
+	mux.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(a.SignUpVerificationAdapter())(verifySignUp))
+	mux.Handle(a.LoginURL, a.MustHaveAdapters(a.LoginAdapter())(logIn))
+	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(afterLogIn))
+	mux.Handle(a.LogOutURL, a.MustHaveAdapters(a.LogoutAdapter("/"))(logOut))
+	mux.Handle(a.PasswordResetURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passReset))
 	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
-	mux.Handle(a.PasswordResetRequestURL, a.PasswordResetAdapter()(passResetRequest))
+	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passResetRequest))
 }
 
 // RedirectHandler ensures that the authentication aspects are taken care of before the redirect is sent.
