@@ -127,16 +127,7 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *emai
 
 // AddDefaultHandlers adds the standard handlers needed for the auth handler.
 func (a *HTTPAuth) AddDefaultHandlers(home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	http.Handle("/", a.MustHaveAdapters()(home))
-	http.Handle(a.SignUpURL, a.MustHaveAdapters(a.SignUpAdapter())(signUp))
-	http.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters()(afterSignUp))
-	http.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(a.SignUpVerificationAdapter())(verifySignUp))
-	http.Handle(a.LoginURL, a.MustHaveAdapters(a.LoginAdapter())(logIn))
-	http.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(afterLogIn))
-	http.Handle(a.LogOutURL, a.MustHaveAdapters(a.LogoutAdapter("/"))(logOut))
-	http.Handle(a.PasswordResetURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passReset))
-	http.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
-	http.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passResetRequest))
+	a.AddDefaultHandlersWithMux(http.DefaultServeMux, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset)
 }
 
 // AddDefaultHandlersWithMux adds the standard handlers needed for the auth handler to the ServeMux.
