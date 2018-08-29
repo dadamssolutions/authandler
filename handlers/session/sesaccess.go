@@ -122,7 +122,7 @@ func (s sesDataAccess) createTable() error {
 func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistantSessionTimeout float64) {
 	log.Printf("Waiting to clean old %v...\n", s.tableName)
 	for range c {
-		log.Printf("Cleaning old %v....\n", s.tableName)
+		//log.Printf("Cleaning old %v....\n", s.tableName)
 		tx, err := s.Begin()
 		if err != nil {
 			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
