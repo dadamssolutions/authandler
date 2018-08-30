@@ -43,7 +43,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	client.CheckRedirect = checkRedirect
 
 	form := url.Values{}
-	form.Set("username", "dadams")
+	form.Set("username", "dAdams")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "false")
 
@@ -114,7 +114,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	client.CheckRedirect = checkRedirect
 
 	form := url.Values{}
-	form.Set("username", "dadams")
+	form.Set("username", "Dadams")
 	form.Set("password", strings.Repeat("e", 64))
 	form.Set("remember", "false")
 
@@ -161,7 +161,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	client.CheckRedirect = checkRedirect
 
 	form := url.Values{}
-	form.Set("username", "dadams")
+	form.Set("username", "dadamS")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "true")
 
@@ -210,7 +210,7 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	client.CheckRedirect = checkRedirect
 
 	form := url.Values{}
-	form.Set("username", "dadams")
+	form.Set("username", "dadaMs")
 	form.Set("password", strings.Repeat("d", 64))
 	form.Set("remember", "yes")
 

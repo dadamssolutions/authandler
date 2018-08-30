@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/dadamssolutions/adaptd"
 )
@@ -37,6 +38,7 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	}
 	// If the user is not logged in, we check the credentials
 	username, password := url.QueryEscape(r.PostFormValue("username")), url.QueryEscape(r.PostFormValue("password"))
+	username = strings.ToLower(username)
 	remember := url.QueryEscape(r.PostFormValue("remember"))
 	rememberMe, _ := strconv.ParseBool(remember)
 	user := getUserFromDB(a.db, a.UsersTableName, "username", username)

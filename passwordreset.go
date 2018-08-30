@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strings"
 
 	"github.com/dadamssolutions/adaptd"
 	"github.com/dadamssolutions/authandler/handlers/passreset"
@@ -108,7 +109,7 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	user := getUserFromDB(a.db, a.UsersTableName, "email", addr.Address)
+	user := getUserFromDB(a.db, a.UsersTableName, "email", strings.ToLower(addr.Address))
 	if user == nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailDoesNotExist)))
 		return

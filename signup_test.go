@@ -36,10 +36,10 @@ func TestSignUpPost(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	form := url.Values{}
-	form.Set("username", "dadams")
+	form.Set("username", "dAdams")
 	form.Set("firstName", "Donnie")
 	form.Set("lastName", "Adams")
-	form.Set("email", "test@gmail.com")
+	form.Set("email", "Test@gmail.com")
 	form.Set("password", strings.Repeat("d", 32))
 	form.Set("repeatedPassword", strings.Repeat("d", 32))
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strings"
 
 	"github.com/dadamssolutions/adaptd"
 )
@@ -80,7 +81,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
-	user := &User{FirstName: firstName, LastName: lastName, Username: username, email: addr.Address, passHash: hashedPassword, validated: false}
+	user := &User{FirstName: firstName, LastName: lastName, Username: strings.ToLower(username), email: strings.ToLower(addr.Address), passHash: hashedPassword, validated: false}
 
 	if usernameExists, emailExists := usernameOrEmailExists(a.db, a.UsersTableName, user); usernameExists {
 		log.Printf("Username %v exists\n", user.Username)
