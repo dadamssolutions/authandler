@@ -316,7 +316,7 @@ func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []b
 
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	db, err := sql.Open("postgres", "user=test dbname=test sslmode=disable")
+	db, err := sql.Open("postgres", "user=test dbname=test1 sslmode=disable")
 	eh := email.NewSender("House Points Test", hostname, "587", testEmail1, password)
 	eh.SendMail = SendMail
 	a, err = DefaultHTTPAuth(db, "users", "www.test.com", eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))

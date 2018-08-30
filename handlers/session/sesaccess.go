@@ -23,7 +23,7 @@ const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
 	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM %[1]v;"
 	dropTable          = "DROP TABLE %v;"
-	insertSession      = "INSERT INTO %v(selector, session_hash, user_id, values, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v', '%v');"
+	insertSession      = "INSERT INTO %v (selector, session_hash, user_id, values, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v', '%v');"
 	deleteSession      = "DELETE FROM %v WHERE selector = '%v';"
 	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistant FROM %v WHERE selector = '%v';"
 	updateSession      = "UPDATE %v SET (user_id, expiration, values) = ('%v', '%v', '%v') WHERE selector = '%v';"

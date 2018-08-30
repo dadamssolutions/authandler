@@ -15,7 +15,7 @@ import (
 )
 
 var timeout = time.Minute
-var db, err = sql.Open("postgres", "user=test dbname=postgres sslmode=disable")
+var db, err = sql.Open("postgres", "user=test dbname=test sslmode=disable")
 var da sesDataAccess
 var sh *Handler
 
