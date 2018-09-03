@@ -187,6 +187,7 @@ func (s *Session) LogUserOut() {
 	defer s.lock.Unlock()
 	s.values["username"][0] = ""
 	s.encryptedUsername = ""
+	s.persistant = false
 }
 
 // Equals returns whether other session is equal to this session
