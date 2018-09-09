@@ -297,10 +297,15 @@ func (s sesDataAccess) logUserIntoSession(ses *sessions.Session, username string
 func (s sesDataAccess) logUserOut(ses *sessions.Session, maxLifetime time.Duration) error {
 	u, eu := ses.Username(), ses.EncryptedUsername()
 	ses.LogUserOut()
-	err := s.updateSession(ses, maxLifetime)
+	err := s.destroySession(ses)
 	if err != nil {
 		ses.LogUserIn(u, eu)
 		return errors.New("Unable to log user out of session")
+	} else {
+		newSes, err := s.createSession("", maxLifetime, false)
+		if err == nil {
+			*ses = *newSes
+		}
 	}
 	return nil
 }

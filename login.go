@@ -55,8 +55,6 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 		log.Println("User login failed, redirecting back to login page")
 		err := NewError(BadLogin)
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
-		ses.AddError(err.Error())
-		a.sesHandler.UpdateSessionIfValid(ses)
 	}
 	*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 }

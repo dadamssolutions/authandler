@@ -175,7 +175,14 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ses := SessionFromContext(r.Context())
-			a.sesHandler.AttachCookie(w, ses)
+			if ses != nil {
+				err := ErrorFromContext(r.Context())
+				if err != nil {
+					ses.AddError(err.Error())
+					a.sesHandler.UpdateSessionIfValid(ses)
+				}
+				a.sesHandler.AttachCookie(w, ses)
+			}
 			h.ServeHTTP(w, r)
 		})
 	}
@@ -317,7 +324,6 @@ func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 		err = a.sesHandler.LogUserOut(ses)
 		if err != nil {
 			log.Println("Could not log user out")
-			*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		} else {
 			ses.AddMessage("You have been successfully logged out")
 		}
