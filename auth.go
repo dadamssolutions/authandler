@@ -204,10 +204,9 @@ func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adap
 // It automatically applies the MustHaveAdapters.
 func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) bool {
-		ses := SessionFromContext(r.Context())
 		authenticated := a.userIsAuthenticated(w, r)
-		if !authenticated && ses != nil {
-			ses.AddError("You must log in to access " + r.URL.Path)
+		if !authenticated {
+			*r = *r.WithContext(NewErrorContext(r.Context(), errors.New("You must log in to view that page")))
 		}
 		return authenticated
 	}
@@ -237,7 +236,8 @@ func (a *HTTPAuth) RedirectIfNoPermission(minRole Role) adaptd.Adapter {
 // CSRFPostAdapter handles the CSRF token verification for POST requests.
 func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) error {
-		return a.csrfHandler.ValidToken(r)
+		err := a.csrfHandler.ValidToken(r)
+		return err
 	}
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{

@@ -1,6 +1,7 @@
 package authandler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/dadamssolutions/adaptd"
@@ -25,7 +26,7 @@ func RedirectOnError(f func(http.ResponseWriter, *http.Request) error, fh http.H
 	g := func(w http.ResponseWriter, r *http.Request) bool {
 		err := f(w, r)
 		if err != nil {
-			*r = *r.WithContext(NewErrorContext(r.Context(), err))
+			*r = *r.WithContext(NewErrorContext(r.Context(), errors.New(logOnError)))
 			return false
 		}
 		return true
