@@ -64,11 +64,11 @@ func TestSessionEquality(t *testing.T) {
 		t.Error("Equal sessions not identified as so")
 	}
 
-	ses1.persistant = false
+	ses1.persistent = false
 	if ses1.Equals(ses2, hash) {
-		t.Error("Non-persisant and persistant sessions identified as equal")
+		t.Error("Non-persisant and persistent sessions identified as equal")
 	}
-	ses1.persistant = true
+	ses1.persistent = true
 
 	ses1.Destroy()
 	if ses1.Equals(ses2, hash) {

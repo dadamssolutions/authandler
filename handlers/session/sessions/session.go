@@ -2,7 +2,7 @@
 Package sessions contains a Session type used to track session cookies in HTTP responses.
 
 Each session will have a unique selector and session ID, be attached to a single user account,
-and can be persistant or session only.
+and can be persistent or session only.
 
 This package should be not be uses without seshandler which manages sessions for a server.
 */
@@ -29,7 +29,7 @@ type Session struct {
 	selectorID        string
 	sessionID         string
 	encryptedUsername string
-	persistant        bool
+	persistent        bool
 	destroyed         bool
 	values            map[string][]string
 
@@ -46,7 +46,7 @@ func NewSession(selectorID, sessionID, username, encryptedUsername, sessionCooki
 	s.values["messages"] = make([]string, 0)
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
-		s.persistant = true
+		s.persistent = true
 	}
 	return s
 }
@@ -115,14 +115,14 @@ func (s *Session) ExpireTime() time.Time {
 func (s *Session) IsExpired() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.IsPersistant() && s.cookie.Expires.Before(time.Now())
+	return s.IsPersistent() && s.cookie.Expires.Before(time.Now())
 }
 
-// IsPersistant returns whether the session is a persistant one.
-func (s *Session) IsPersistant() bool {
+// IsPersistent returns whether the session is a persistent one.
+func (s *Session) IsPersistent() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.persistant
+	return s.persistent
 }
 
 // MarkSessionExpired marks the session expired.
@@ -187,7 +187,7 @@ func (s *Session) LogUserOut() {
 	defer s.lock.Unlock()
 	s.values["username"][0] = ""
 	s.encryptedUsername = ""
-	s.persistant = false
+	s.persistent = false
 }
 
 // Equals returns whether other session is equal to this session
@@ -196,7 +196,7 @@ func (s *Session) Equals(other *Session, hash func(string) string) bool {
 	other.lock.RLock()
 	defer s.lock.RUnlock()
 	defer other.lock.RUnlock()
-	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed() && s.IsPersistant() == other.IsPersistant() && hash(s.HashPayload()) == hash(other.HashPayload())
+	return s.SelectorID() == other.SelectorID() && s.Username() == other.Username() && s.SessionID() == other.SessionID() && s.IsDestroyed() == other.IsDestroyed() && s.IsPersistent() == other.IsPersistent() && hash(s.HashPayload()) == hash(other.HashPayload())
 }
 
 // AddError adds an error to the session flashes

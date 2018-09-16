@@ -97,25 +97,25 @@ func TestUpdateToNonPersisantShouldCreateNewSession(t *testing.T) {
 	selector, session := ses.SelectorID(), ses.SessionID()
 	err := sh.UpdateSessionIfValid(ses)
 	if err != nil || ses.SelectorID() == selector || ses.SessionID() == session || ses.IsDestroyed() {
-		t.Error("Non-persistant session should be destroyed and re-created on update")
+		t.Error("Non-persistent session should be destroyed and re-created on update")
 	}
 }
 
 func TestCreateSession(t *testing.T) {
 	ses, err := sh.CreateSession("thedadams", true)
-	if err != nil || !ses.IsValid() || !ses.IsPersistant() {
+	if err != nil || !ses.IsValid() || !ses.IsPersistent() {
 		t.Error("Session not created properly")
 	}
 
 	ses, err = sh.CreateSession("thedadams", false)
-	if err != nil || !ses.IsValid() || ses.IsPersistant() {
+	if err != nil || !ses.IsValid() || ses.IsPersistent() {
 		t.Error("Session not created properly")
 	}
 }
 
 func TestSessionNotValidForEncryptionReasons(t *testing.T) {
 	ses, err := sh.CreateSession("thedadams", true)
-	if err != nil || !ses.IsValid() || !ses.IsPersistant() {
+	if err != nil || !ses.IsValid() || !ses.IsPersistent() {
 		t.Error("Session not created properly")
 	}
 
@@ -134,7 +134,7 @@ func TestSessionNotValidForEncryptionReasons(t *testing.T) {
 
 func TestSessionValidityWithLongUsername(t *testing.T) {
 	ses, err := sh.CreateSession("thedadamsthedadams", true)
-	if err != nil || !ses.IsValid() || !ses.IsPersistant() {
+	if err != nil || !ses.IsValid() || !ses.IsPersistent() {
 		t.Error("Session not created properly")
 	}
 
@@ -223,17 +223,17 @@ func TestParsingCookieDetectsPersistance(t *testing.T) {
 	ses, _ := sh.CreateSession("nadams", false)
 
 	sesPTest, _ := sh.ParseSessionCookie(sesP.SessionCookie())
-	if sesPTest == nil || !sesPTest.IsPersistant() {
-		t.Error("Persistant cookie parsed as non-persistant")
+	if sesPTest == nil || !sesPTest.IsPersistent() {
+		t.Error("Persistent cookie parsed as non-persistent")
 	}
 
 	sesTest, _ := sh.ParseSessionCookie(ses.SessionCookie())
-	if sesTest == nil || sesTest.IsPersistant() {
-		t.Error("Non-persistant cookie parsed as persistant")
+	if sesTest == nil || sesTest.IsPersistent() {
+		t.Error("Non-persistent cookie parsed as persistent")
 	}
 }
 
-func TestAttachPersistantCookieToResponseWriter(t *testing.T) {
+func TestAttachPersistentCookieToResponseWriter(t *testing.T) {
 	session, _ := sh.CreateSession("dadams", true)
 	w := httptest.NewRecorder()
 	err := sh.AttachCookie(w, session)
@@ -286,7 +286,7 @@ func TestValidateUserInputs(t *testing.T) {
 	}
 }
 
-func TestTimeoutOfNonPersistantCookies(t *testing.T) {
+func TestTimeoutOfNonPersistentCookies(t *testing.T) {
 	sh, _ := NewHandlerWithDB(db, "sessions", "sessionID", 500*time.Millisecond, time.Second, nil)
 	ses1, _ := sh.CreateSession("dadams", true)
 	ses2, _ := sh.CreateSession("nadams", false)
@@ -295,36 +295,36 @@ func TestTimeoutOfNonPersistantCookies(t *testing.T) {
 
 	err := sh.UpdateSessionIfValid(ses2)
 	if err != nil || ses2.IsDestroyed() {
-		t.Error("Non-persistant session should not be destroyed yet")
+		t.Error("Non-persistent session should not be destroyed yet")
 	}
 
 	time.Sleep(time.Millisecond * 500) // Wait for clean-up to fire
 
 	// ses2 should not be destroyed
 	if !sh.isValidSession(ses2) {
-		t.Error("Non-persistant session should not be destroyed")
+		t.Error("Non-persistent session should not be destroyed")
 	}
 
-	// Update the persistant session so it stays in the database
+	// Update the persistent session so it stays in the database
 	sh.UpdateSessionIfValid(ses1)
 
 	time.Sleep(time.Millisecond * 500) // Wait for clean-up to fire
 
 	// ses2 should now be destroyed
 	if sh.isValidSession(ses2) {
-		t.Error("Non-persistant session should now be destroyed")
+		t.Error("Non-persistent session should now be destroyed")
 	}
 
 	// Now ses1 should be in the database.
 	if !sh.isValidSession(ses1) {
-		t.Error("A persistant session should be valid")
+		t.Error("A persistent session should be valid")
 	}
 
 	time.Sleep(time.Second)
 
 	// Now ses1 should be destroyed
 	if sh.isValidSession(ses1) {
-		t.Error("A persistant session should now be invalid")
+		t.Error("A persistent session should now be invalid")
 	}
 }
 

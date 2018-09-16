@@ -26,7 +26,7 @@ const (
 )
 
 // Role is represents the role of a user.
-// Roles elevate and have a linear heirachy.
+// Roles elevate and have a linear hierarchy.
 type Role int
 
 // HasRole returns whether the role has the given permssion level.

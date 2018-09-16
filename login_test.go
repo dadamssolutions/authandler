@@ -62,7 +62,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 		t.Error("Should be redirected after a successful login")
 	}
 	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
-	if ses == nil || ses.IsPersistant() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
+	if ses == nil || ses.IsPersistent() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
 		t.Error("The cookie on a login response is not valid")
 	}
 
@@ -150,7 +150,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 
-func TestUserLogInHandlerPersistant(t *testing.T) {
+func TestUserLogInHandlerPersistent(t *testing.T) {
 	addTestUserToDatabase(true)
 	num = 0
 	w := httptest.NewRecorder()
@@ -177,8 +177,8 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	}
 
 	ses, err := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || !ses.IsPersistant() {
-		t.Error("Session created should be persistant with 'Remember me'")
+	if err != nil || !ses.IsPersistent() {
+		t.Error("Session created should be persistent with 'Remember me'")
 	}
 
 	cookie := ses.SessionCookie()
@@ -198,7 +198,7 @@ func TestUserLogInHandlerPersistant(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 
-func TestUserLogInHandlerBadPersistant(t *testing.T) {
+func TestUserLogInHandlerBadPersistent(t *testing.T) {
 	addTestUserToDatabase(true)
 	num = 0
 	w := httptest.NewRecorder()
@@ -226,8 +226,8 @@ func TestUserLogInHandlerBadPersistant(t *testing.T) {
 	}
 
 	ses, err := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
-	if err != nil || ses.IsPersistant() {
-		t.Error("Session created should not be persistant with bad remember value")
+	if err != nil || ses.IsPersistent() {
+		t.Error("Session created should not be persistent with bad remember value")
 	}
 
 	// Log the user out

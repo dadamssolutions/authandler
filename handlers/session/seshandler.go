@@ -1,10 +1,10 @@
 /*
-Package session uses a database backend to manage session cookies for a server. A seshandler can manage persistant and session only cookies simultaneously.
+Package session uses a database backend to manage session cookies for a server. A seshandler can manage persistent and session only cookies simultaneously.
 
 Once a database connection is established, one can create a seshandler with something like:
 	sh, err := seshandler.NewSesHandlerWithDB(db, time.Minute * 20, time.Day)
 
-One can create a new (persistant) session with:
+One can create a new (persistent) session with:
 	session, err := sh.CreateSession("username", true)
 
 The session structs themselves should not be acted upon independently. Instead the sessions should be passed to the handler:
@@ -45,13 +45,13 @@ type Handler struct {
 // The database connection should be a pointer to the database connection
 // used in the rest of the app for concurrency purposes.
 // If either timeout <= 0, then it is set to 0 (session only cookies).
-func NewHandlerWithDB(db *sql.DB, tableName, cookieName string, sessionTimeout time.Duration, persistantSessionTimeout time.Duration, secret []byte) (*Handler, error) {
-	da, err := newDataAccess(db, tableName, cookieName, secret, sessionTimeout, persistantSessionTimeout)
+func NewHandlerWithDB(db *sql.DB, tableName, cookieName string, sessionTimeout time.Duration, persistentSessionTimeout time.Duration, secret []byte) (*Handler, error) {
+	da, err := newDataAccess(db, tableName, cookieName, secret, sessionTimeout, persistentSessionTimeout)
 	if err != nil {
 		log.Println(err)
 		return nil, err
 	}
-	return newHandler(da, persistantSessionTimeout), nil
+	return newHandler(da, persistentSessionTimeout), nil
 }
 
 func newHandler(da sesDataAccess, timeout time.Duration) *Handler {
@@ -68,8 +68,8 @@ func (sh *Handler) GetTableName() string {
 }
 
 // CreateSession generates a new session for the given user ID.
-func (sh *Handler) CreateSession(username string, persistant bool) (*sessions.Session, error) {
-	ses, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistant)
+func (sh *Handler) CreateSession(username string, persistent bool) (*sessions.Session, error) {
+	ses, err := sh.dataAccess.createSession(username, sh.maxLifetime, persistent)
 	if err != nil {
 		// An error here likely means a problem with the database
 		log.Println(err)
@@ -195,8 +195,8 @@ func (sh *Handler) ReadFlashes(ses *sessions.Session) ([]string, []string) {
 }
 
 // CopySession returns a new session with the values of the parameter session (accept selector and session IDs)
-func (sh *Handler) CopySession(ses *sessions.Session, persistant bool) *sessions.Session {
-	newSes, err := sh.CreateSession(ses.Username(), persistant)
+func (sh *Handler) CopySession(ses *sessions.Session, persistent bool) *sessions.Session {
+	newSes, err := sh.CreateSession(ses.Username(), persistent)
 	if err != nil {
 		return nil
 	}
@@ -208,11 +208,11 @@ func (sh *Handler) CopySession(ses *sessions.Session, persistant bool) *sessions
 }
 
 func (sh *Handler) updateSession(ses *sessions.Session) error {
-	// If the session is persistant, then we reset the expiration from time.Now
-	if !ses.IsPersistant() {
-		// If the session is not persistant, then it should be destroyed
+	// If the session is persistent, then we reset the expiration from time.Now
+	if !ses.IsPersistent() {
+		// If the session is not persistent, then it should be destroyed
 		// and another one created in its place.
-		newerSession := sh.CopySession(ses, ses.IsPersistant())
+		newerSession := sh.CopySession(ses, ses.IsPersistent())
 		if newerSession == nil {
 			return errors.New("Could not copy session to new session")
 		}

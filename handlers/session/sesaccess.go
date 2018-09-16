@@ -21,13 +21,13 @@ import (
 
 const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
-	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistant boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM %[1]v;"
+	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistent boolean NOT NULL, PRIMARY KEY (selector)); DELETE FROM %[1]v;"
 	dropTable          = "DROP TABLE %v;"
-	insertSession      = "INSERT INTO %v (selector, session_hash, user_id, values, created, expiration, persistant) VALUES('%v', '%v', '%v', '%v', '%v', '%v', '%v');"
+	insertSession      = "INSERT INTO %v (selector, session_hash, user_id, values, created, expiration, persistent) VALUES('%v', '%v', '%v', '%v', '%v', '%v', '%v');"
 	deleteSession      = "DELETE FROM %v WHERE selector = '%v';"
-	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistant FROM %v WHERE selector = '%v';"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %v WHERE selector = '%v';"
 	updateSession      = "UPDATE %v SET (user_id, expiration, values) = ('%v', '%v', '%v') WHERE selector = '%v';"
-	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistant AND created < NOW() - INTERVAL '%v SECONDS') OR (persistant AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
+	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistent AND created < NOW() - INTERVAL '%v SECONDS') OR (persistent AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
 type sesDataAccess struct {
@@ -39,7 +39,7 @@ type sesDataAccess struct {
 	lock       *sync.RWMutex
 }
 
-func newDataAccess(db *sql.DB, tableName, cookieName string, secret []byte, sessionTimeout, persistantSessionTimeout time.Duration) (sesDataAccess, error) {
+func newDataAccess(db *sql.DB, tableName, cookieName string, secret []byte, sessionTimeout, persistentSessionTimeout time.Duration) (sesDataAccess, error) {
 	var err error
 	sesAccess := sesDataAccess{db, tableName, cookieName, nil, nil, &sync.RWMutex{}}
 	if sesAccess.DB == nil {
@@ -64,7 +64,7 @@ func newDataAccess(db *sql.DB, tableName, cookieName string, secret []byte, sess
 
 	// Each time this ticks, we will clean the database of old sessions.
 	c := time.Tick(sessionTimeout)
-	go sesAccess.cleanUpOldSessions(c, sessionTimeout.Seconds(), persistantSessionTimeout.Seconds())
+	go sesAccess.cleanUpOldSessions(c, sessionTimeout.Seconds(), persistentSessionTimeout.Seconds())
 	return sesAccess, nil
 }
 
@@ -119,7 +119,7 @@ func (s sesDataAccess) createTable() error {
 	return tx.Commit()
 }
 
-func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistantSessionTimeout float64) {
+func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, persistentSessionTimeout float64) {
 	log.Printf("Waiting to clean old %v...\n", s.tableName)
 	for range c {
 		//log.Printf("Cleaning old %v....\n", s.tableName)
@@ -129,9 +129,9 @@ func (s sesDataAccess) cleanUpOldSessions(c <-chan time.Time, sessionTimeout, pe
 			log.Println(err)
 			return
 		}
-		// Clean up old sessions that are not persistant and are older than maxLifetimeSessionOnly
-		// Also clean up old expired persistant sessions.
-		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, s.tableName, sessionTimeout, persistantSessionTimeout))
+		// Clean up old sessions that are not persistent and are older than maxLifetimeSessionOnly
+		// Also clean up old expired persistent sessions.
+		rows, err := tx.Query(fmt.Sprintf(cleanUpOldSessions, s.tableName, sessionTimeout, persistentSessionTimeout))
 		if err != nil {
 			tx.Rollback()
 			log.Printf("We have stopped cleaning up old %v\n", s.tableName)
@@ -163,8 +163,8 @@ func (s sesDataAccess) dropTable() error {
 	return tx.Commit()
 }
 
-func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, persistant bool) (*sessions.Session, error) {
-	if !persistant {
+func (s sesDataAccess) createSession(username string, maxLifetime time.Duration, persistent bool) (*sessions.Session, error) {
+	if !persistent {
 		maxLifetime = 0
 	}
 	var selectorID, sessionID string
@@ -180,7 +180,7 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 			return nil, err
 		}
 		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), s.cookieName, maxLifetime)
-		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), ses.Username(), ses.ValuesAsText(), time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistant)
+		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), ses.Username(), ses.ValuesAsText(), time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistent)
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
@@ -206,21 +206,21 @@ func (s sesDataAccess) createSession(username string, maxLifetime time.Duration,
 func (s sesDataAccess) getSessionInfo(selectorID, sessionID, encryptedUsername string, maxLifetime time.Duration) (*sessions.Session, error) {
 	var dbHash, values, username string
 	var expires time.Time
-	var persistant bool
+	var persistent bool
 	var ses *sessions.Session
 	tx, err := s.Begin()
 	if err != nil {
 		return nil, err
 	}
 	queryString := fmt.Sprintf(getSessionInfo, s.tableName, selectorID)
-	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistant)
+	err = tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistent)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 	err = tx.Commit()
-	// If the session is persistant, then we set the expiration to maxLifetime
-	if persistant {
+	// If the session is persistent, then we set the expiration to maxLifetime
+	if persistent {
 		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, s.cookieName, maxLifetime)
 	} else {
 		ses = sessions.NewSession(selectorID, sessionID, username, encryptedUsername, s.cookieName, 0)
