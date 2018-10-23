@@ -59,7 +59,7 @@ func (e *Sender) SendMessage(tmpl *template.Template, subject string, data map[s
 			log.Printf("Error sending message to %v\n", r.Email())
 			return err
 		}
-		log.Println("Message sent!")
+		log.Printf("Message sent to %v!\n", r.Email())
 	}
 	return nil
 }
