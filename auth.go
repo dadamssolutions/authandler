@@ -141,7 +141,7 @@ func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, a
 	mux.Handle(a.LogOutURL, a.MustHaveAdapters(a.LogoutAdapter("/"))(logOut))
 	mux.Handle(a.PasswordResetURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passReset))
 	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
-	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passResetRequest))
+	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetRequestAdapter())(passResetRequest))
 }
 
 // RedirectHandler ensures that the authentication aspects are taken care of before the redirect is sent.
