@@ -42,15 +42,19 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	remember := url.QueryEscape(r.PostFormValue("remember"))
 	rememberMe, _ := strconv.ParseBool(remember)
 	user := getUserFromDB(a.db, a.UsersTableName, "username", username)
+	// If the user cannot be found by username, then we look for the email address.
+	if user == nil {
+		user = getUserFromDB(a.db, a.UsersTableName, "email", r.PostFormValue("username"))
+	}
 	// If the user has provided correct credentials, then we log them in by creating a session.
 	if user != nil && user.IsValidated() && a.CompareHashAndPassword(user.passHash, []byte(password)) == nil {
 		ses = a.sesHandler.CopySession(ses, rememberMe)
-		a.sesHandler.LogUserIn(ses, username)
+		a.sesHandler.LogUserIn(ses, user.Username)
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
 
 	if ses.IsUserLoggedIn() {
-		log.Printf("User %v logged in successfully. Redirecting to %v\n", username, a.RedirectAfterLogin)
+		log.Printf("User %v logged in successfully. Redirecting to %v\n", user.Username, a.RedirectAfterLogin)
 	} else {
 		log.Println("User login failed, redirecting back to login page")
 		err := NewError(BadLogin)
