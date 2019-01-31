@@ -99,6 +99,11 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 	err = updateUserPassword(a.db, a.UsersTableName, username, base64.RawURLEncoding.EncodeToString(passHash))
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+	} else {
+		ses := SessionFromContext(r.Context())
+		if ses != nil {
+			ses.AddMessage("Password reset successfully!")
+		}
 	}
 }
 
