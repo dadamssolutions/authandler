@@ -18,7 +18,7 @@ func TestPasswordResetNoQuery(t *testing.T) {
 	req, _ := http.NewRequest("GET", ts.URL, nil)
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetURL {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetRequestURL {
 		log.Println(err)
 		log.Println(resp.Status)
 		log.Println(redirectURL.Path)
@@ -48,7 +48,7 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 
 	resp, err = client.Do(req)
 	redirectURL, _ := resp.Location()
-	if len(req.Cookies()) == 0 || err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetURL {
+	if len(req.Cookies()) == 0 || err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetRequestURL {
 		t.Error("Get request to password reset after user logged out should redirect")
 	}
 
@@ -74,7 +74,7 @@ func TestPasswordResetValidQuery(t *testing.T) {
 	// Second request should be invalid
 	resp, err = client.Do(req)
 	redirectURL, _ := resp.Location()
-	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetURL {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || redirectURL.Path != a.PasswordResetRequestURL {
 		t.Error("Get request to password reset with user query token should fail")
 	}
 

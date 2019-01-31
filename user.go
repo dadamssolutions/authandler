@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"time"
 )
 
 // Represent roles used for users.
@@ -16,13 +17,16 @@ const (
 	Supervisor
 	Admin
 
-	createUsersTableSQL    = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', PRIMARY KEY (username));"
-	addUserToDatabaseSQL   = "INSERT INTO %v (username, fname, lname, email, validated, pass_hash) VALUES ('%v','%v','%v','%v',false,'%v');"
-	getUserInfoSQL         = "SELECT username, fname, lname, email, role, validated FROM %v WHERE %v = '%v';"
-	getUserPasswordHashSQL = "SELECT pass_hash FROM %v WHERE username = '%v';"
-	validateUserSQL        = "UPDATE %v SET validated = true WHERE username = '%v';"
-	updateUserPasswordSQL  = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
-	deleteTestTableSQL     = "DROP TABLE %v;"
+	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', last_access timestamp DEFAULT 'epoch', PRIMARY KEY (username));"
+	addUserToDatabaseSQL    = "INSERT INTO %v (username, fname, lname, email, validated, pass_hash) VALUES ('%v','%v','%v','%v',false,'%v');"
+	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %v WHERE %v = '%v';"
+	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = '%v';"
+	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = '%v';"
+	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
+	updateUserLastAccessSQL = "UPDATE %v SET last_access = '%v' WHERE username = '%v';"
+	getUserLastAccessSQL    = "SELECT last_access FROM %v WHERE username = '%v';"
+	deleteTestTableSQL      = "DROP TABLE %v;"
+	dateLayout              = "2006-01-02 15:04:05"
 )
 
 // Role is represents the role of a user.
@@ -160,9 +164,38 @@ func updateUserPassword(db *sql.DB, tableName, username, passHash string) error 
 	_, err = tx.Exec(fmt.Sprintf(updateUserPasswordSQL, tableName, passHash, username))
 	if err != nil {
 		tx.Rollback()
+		return errors.New("Failed to update user's last access time")
+	}
+	tx.Commit()
+	return nil
+}
+
+func getUserLastAccess(db *sql.DB, tableName, username string) *time.Time {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil
+	}
+	var t time.Time
+	err = tx.QueryRow(fmt.Sprintf(getUserLastAccessSQL, tableName, username)).Scan(&t)
+	if err != nil {
+		tx.Rollback()
+		return nil
+	}
+	tx.Commit()
+	return &t
+}
+
+func updateUserLastAccess(db *sql.DB, tableName, username string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return errors.New("Failed to connect to database")
+	}
+	_, err = tx.Exec(fmt.Sprintf(updateUserLastAccessSQL, tableName, time.Now().Format(dateLayout), username))
+	if err != nil {
+		log.Println(err)
+		tx.Rollback()
 		return errors.New("Failed to update user's password")
 	}
 	tx.Commit()
-	log.Printf("%v's password was updated successfully\n", username)
 	return nil
 }

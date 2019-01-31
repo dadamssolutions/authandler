@@ -295,6 +295,23 @@ func TestGetUserPasswordHash(t *testing.T) {
 	removeTestUserFromDatabase()
 }
 
+func TestUpdateUserLastAccess(t *testing.T) {
+	addTestUserToDatabase(true)
+	epoch, _ := time.Parse(dateLayout, "1970-01-01 00:00:00")
+
+	updateTime := getUserLastAccess(a.db, a.UsersTableName, "dadams")
+	if !updateTime.Equal(epoch) {
+		t.Error("User should be created with epoch time as last access time")
+	}
+
+	now := time.Now()
+	err := updateUserLastAccess(a.db, a.UsersTableName, "dadams")
+	updateTime = getUserLastAccess(a.db, a.UsersTableName, "dadams")
+	if err != nil || updateTime.Equal(now) {
+		t.Error("User access time not updated")
+	}
+}
+
 // A Test send mail function so actual emails are not sent
 func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []byte) error {
 	if len(to) > 1 {
