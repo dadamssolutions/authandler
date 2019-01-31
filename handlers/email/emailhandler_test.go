@@ -18,7 +18,7 @@ type Receiver struct {
 	name, email string
 }
 
-func (er *Receiver) Email() string {
+func (er *Receiver) GetEmail() string {
 	return er.email
 }
 

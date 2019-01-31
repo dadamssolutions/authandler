@@ -225,7 +225,7 @@ func TestCurrentUserGoodCookie(t *testing.T) {
 func TestCurrentUserFromContext(t *testing.T) {
 	addTestUserToDatabase(true)
 
-	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", email: "test%40gmail.com"}
+	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", Email: "test%40gmail.com"}
 	ses, _ := a.sesHandler.CreateSession(user.Username, false)
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(NewUserContext(req.Context(), user))

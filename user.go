@@ -37,20 +37,20 @@ func (r Role) HasRole(permission Role) bool {
 // User represents a user to be logged in or signed up represented in the created database.
 // For ease, you would want the representation of the user in your app to embed User.
 type User struct {
-	FirstName, LastName, email, Greet, Username string
+	FirstName, LastName, Email, Greet, Username string
 	Role                                        Role
 	validated                                   bool
 	passHash                                    []byte
 }
 
-// Email implements the email.Recipient interface.
-func (u User) Email() string {
-	return u.email
+// GetEmail implements the email.Recipient interface.
+func (u User) GetEmail() string {
+	return u.Email
 }
 
 // Greeting implements the email.Recipient interface.
 func (u User) Greeting() string {
-	return u.Greet
+	return u.FirstName
 }
 
 // HasPermission determines whether the user has the given permission level
@@ -64,7 +64,7 @@ func (u User) IsValidated() bool {
 }
 
 func (u User) isValid() bool {
-	if u.FirstName == "" || u.LastName == "" || u.email == "" || u.Username == "" {
+	if u.FirstName == "" || u.LastName == "" || u.Email == "" || u.Username == "" {
 		return false
 	}
 	return true
@@ -77,14 +77,15 @@ func getUserFromDB(db *sql.DB, tableName, col, search string) *User {
 		return nil
 	}
 	user := User{}
-	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.email, &user.Role, &user.validated)
+	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
 	if err != nil {
+		fmt.Println(err)
 		tx.Rollback()
 		return nil
 	}
 	tx.Commit()
 
-	user.email, _ = url.QueryUnescape(user.email)
+	user.Email, _ = url.QueryUnescape(user.Email)
 	user.FirstName, _ = url.QueryUnescape(user.FirstName)
 	user.LastName, _ = url.QueryUnescape(user.LastName)
 	user.Username, _ = url.QueryUnescape(user.Username)
@@ -96,7 +97,7 @@ func getUserFromDB(db *sql.DB, tableName, col, search string) *User {
 
 func usernameOrEmailExists(db *sql.DB, tableName string, user *User) (bool, bool) {
 	usernameSearch := getUserFromDB(db, tableName, "username", user.Username)
-	emailSearch := getUserFromDB(db, tableName, "email", user.Email())
+	emailSearch := getUserFromDB(db, tableName, "email", user.GetEmail())
 	return usernameSearch != nil, emailSearch != nil
 }
 
@@ -106,7 +107,7 @@ func addUserToDatabase(db *sql.DB, tableName string, user *User) error {
 		log.Println("Cannot connect to database")
 		return err
 	}
-	_, err = tx.Exec(fmt.Sprintf(addUserToDatabaseSQL, tableName, user.Username, user.FirstName, user.LastName, user.email, base64.RawURLEncoding.EncodeToString(user.passHash)))
+	_, err = tx.Exec(fmt.Sprintf(addUserToDatabaseSQL, tableName, user.Username, user.FirstName, user.LastName, user.Email, base64.RawURLEncoding.EncodeToString(user.passHash)))
 	if err != nil {
 		tx.Rollback()
 		return err

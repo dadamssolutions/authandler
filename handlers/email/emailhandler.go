@@ -14,7 +14,7 @@ import (
 
 // Recipient interface represents someone who can receive an email message.
 type Recipient interface {
-	Email() string
+	GetEmail() string
 	Greeting() string
 }
 
@@ -46,20 +46,20 @@ func (e *Sender) SendMessage(tmpl *template.Template, subject string, data map[s
 	for _, r := range recipientList {
 		// Reset the buffer and add the header info with To:...
 		buf.Reset()
-		buf.Write(append([]byte("To: "+r.Email()+"\r\n"), headers...))
+		buf.Write(append([]byte("To: "+r.GetEmail()+"\r\n"), headers...))
 		// Add Greeting and Email info if the template wants it.
 		data["Greeting"] = r.Greeting()
-		data["Email"] = r.Email()
+		data["Email"] = r.GetEmail()
 		// Execute the template and send the message
 		tmpl.Execute(buf, data)
-		log.Printf("Sending message to %v\n", r.Email())
-		err := e.SendMail(e.hostname+":"+e.port, e.auth, e.username, []string{r.Email()}, buf.Bytes())
+		log.Printf("Sending message to %v\n", r.GetEmail())
+		err := e.SendMail(e.hostname+":"+e.port, e.auth, e.username, []string{r.GetEmail()}, buf.Bytes())
 
 		if err != nil {
-			log.Printf("Error sending message to %v\n", r.Email())
+			log.Printf("Error sending message to %v\n", r.GetEmail())
 			return err
 		}
-		log.Printf("Message sent to %v!\n", r.Email())
+		log.Printf("Message sent to %v!\n", r.GetEmail())
 	}
 	return nil
 }
