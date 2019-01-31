@@ -179,12 +179,16 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 				err := ErrorFromContext(r.Context())
 				if err != nil {
 					ses.AddError(err.Error())
-					a.sesHandler.UpdateSessionIfValid(ses)
+					err := a.sesHandler.UpdateSessionIfValid(ses)
+					log.Println(err)
 					if ses.IsUserLoggedIn() {
-						updateUserLastAccess(a.db, a.UsersTableName, ses.Username())
+						log.Println("Updating user access time")
 					}
 				}
-				a.sesHandler.AttachCookie(w, ses)
+				err = a.sesHandler.AttachCookie(w, ses)
+				if err == nil {
+					updateUserLastAccess(a.db, a.UsersTableName, ses.Username())
+				}
 			}
 			h.ServeHTTP(w, r)
 		})
