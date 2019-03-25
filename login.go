@@ -56,7 +56,7 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	if ses.IsUserLoggedIn() {
 		log.Printf("User %v logged in successfully. Redirecting to %v\n", user.Username, a.RedirectAfterLogin)
 	} else {
-		log.Println("User login failed, redirecting back to login page")
+		log.Printf("User %v login failed, redirecting back to login page\n", username)
 		err := NewError(BadLogin)
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	}

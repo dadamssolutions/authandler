@@ -184,7 +184,7 @@ func (sh *Handler) LogUserOut(ses *sessions.Session) error {
 
 // ReadFlashes allows reading of the flashes from the session and then updates the database.
 // This is a shorthand for reading flashes from the session and then calling UpdateSession.
-func (sh *Handler) ReadFlashes(ses *sessions.Session) ([]string, []string) {
+func (sh *Handler) ReadFlashes(ses *sessions.Session) ([]interface{}, []interface{}) {
 	msgs, errs := ses.Flashes()
 	err := sh.dataAccess.updateSession(ses, sh.maxLifetime)
 	if err != nil {

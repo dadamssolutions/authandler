@@ -3,6 +3,8 @@ package authandler
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -50,6 +52,7 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 		u := getUserFromDB(a.db, a.UsersTableName, "username", username)
 		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if !(a.userIsAuthenticated(w, r) || err == nil) {
+			log.Printf("Cannot generate a token for %v\n", username)
 			return NewError(TokenError)
 		}
 		return nil
@@ -63,6 +66,7 @@ func (a *HTTPAuth) PasswordResetAdapter() adaptd.Adapter {
 			ses = a.passResetHandler.GenerateNewToken(u.Username)
 		}
 		if ses == nil {
+			log.Printf("Cannot attach token for %v\n", u.Username)
 			return errors.New("Cannot attach token")
 		}
 
@@ -102,7 +106,7 @@ func (a *HTTPAuth) passwordReset(w http.ResponseWriter, r *http.Request) {
 	} else {
 		ses := SessionFromContext(r.Context())
 		if ses != nil {
-			ses.AddMessage("Password reset successfully!")
+			ses.AddMessage(fmt.Sprintf("Password for %v was reset successfully!", username))
 		}
 	}
 }
@@ -127,4 +131,5 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	}
+	log.Println(fmt.Sprintf("Password reset email sent to %v", user.Username))
 }

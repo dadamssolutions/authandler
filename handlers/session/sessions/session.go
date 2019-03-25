@@ -31,19 +31,19 @@ type Session struct {
 	encryptedUsername string
 	persistent        bool
 	destroyed         bool
-	values            map[string][]string
+	values            map[string][]interface{}
 
 	lock *sync.RWMutex
 }
 
 // NewSession creates a new session with the given information
 func NewSession(selectorID, sessionID, username, encryptedUsername, sessionCookieName string, maxLifetime time.Duration) *Session {
-	s := &Session{selectorID: selectorID, sessionID: sessionID, encryptedUsername: encryptedUsername, values: make(map[string][]string), lock: &sync.RWMutex{}}
+	s := &Session{selectorID: selectorID, sessionID: sessionID, encryptedUsername: encryptedUsername, values: make(map[string][]interface{}), lock: &sync.RWMutex{}}
 	c := &http.Cookie{Name: sessionCookieName, Value: s.CookieValue(), Path: "/", HttpOnly: true, Secure: true, MaxAge: int(maxLifetime.Seconds())}
 	s.cookie = c
-	s.values["username"] = []string{username}
-	s.values["errors"] = make([]string, 0)
-	s.values["messages"] = make([]string, 0)
+	s.values["username"] = []interface{}{username}
+	s.values["errors"] = make([]interface{}, 0)
+	s.values["messages"] = make([]interface{}, 0)
 	if maxLifetime != 0 {
 		c.Expires = time.Now().Add(maxLifetime)
 		s.persistent = true
@@ -73,7 +73,7 @@ func (s *Session) CookieValue() string {
 func (s *Session) HashPayload() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.values["username"][0] + s.sessionID
+	return s.values["username"][0].(string) + s.sessionID
 }
 
 // SelectorID returns the session's selector ID
@@ -94,7 +94,7 @@ func (s *Session) SessionID() string {
 func (s *Session) Username() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.values["username"][0]
+	return s.values["username"][0].(string)
 }
 
 // EncryptedUsername returns the username of the account to which the session is associated.
@@ -200,17 +200,17 @@ func (s *Session) Equals(other *Session, hash func(string) string) bool {
 }
 
 // AddError adds an error to the session flashes
-func (s *Session) AddError(err ...string) {
+func (s *Session) AddError(err ...interface{}) {
 	s.addToFlashes(errorKey, err...)
 }
 
 // AddMessage adds an error to the session flashes
-func (s *Session) AddMessage(msg ...string) {
+func (s *Session) AddMessage(msg ...interface{}) {
 	s.addToFlashes(msgKey, msg...)
 }
 
 // Flashes gets and deletes the flash messages.
-func (s *Session) Flashes() ([]string, []string) {
+func (s *Session) Flashes() ([]interface{}, []interface{}) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	defer func() {
@@ -243,7 +243,7 @@ func (s *Session) TextToValues(text string) error {
 	return nil
 }
 
-func (s *Session) addToFlashes(key string, val ...string) {
+func (s *Session) addToFlashes(key string, val ...interface{}) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.values[key] = append(s.values[key], val...)

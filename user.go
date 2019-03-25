@@ -194,7 +194,7 @@ func updateUserLastAccess(db *sql.DB, tableName, username string) error {
 	if err != nil {
 		log.Println(err)
 		tx.Rollback()
-		return errors.New("Failed to update user's password")
+		return errors.New("Failed to update user's access time")
 	}
 	tx.Commit()
 	return nil

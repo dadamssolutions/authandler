@@ -179,11 +179,7 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 				err := ErrorFromContext(r.Context())
 				if err != nil {
 					ses.AddError(err.Error())
-					err := a.sesHandler.UpdateSessionIfValid(ses)
-					log.Println(err)
-					if ses.IsUserLoggedIn() {
-						log.Println("Updating user access time")
-					}
+					a.sesHandler.UpdateSessionIfValid(ses)
 				}
 				err = a.sesHandler.AttachCookie(w, ses)
 				if err == nil {
@@ -321,17 +317,19 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 }
 
 // Flashes returns the flashes of the session and updates the database.
-func (a *HTTPAuth) Flashes(ses *sessions.Session) ([]string, []string) {
+func (a *HTTPAuth) Flashes(ses *sessions.Session) ([]interface{}, []interface{}) {
 	return a.sesHandler.ReadFlashes(ses)
 }
 
 func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
 	if ses.IsUserLoggedIn() {
+		username := ses.Username()
 		err = a.sesHandler.LogUserOut(ses)
 		if err != nil {
-			log.Println("Could not log user out")
+			log.Printf("Could not log %v out\n", username)
 		} else {
+			log.Printf("%v was successfully logged out\n", username)
 			ses.AddMessage("You have been successfully logged out")
 		}
 	}
