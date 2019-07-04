@@ -115,7 +115,7 @@ func (s sesDataAccess) createTable() error {
 		tx.Rollback()
 		return databaseTableCreationError(s.tableName)
 	}
-	log.Println("Sessions table created")
+	log.Println(s.tableName + " table created")
 	return tx.Commit()
 }
 
