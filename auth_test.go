@@ -336,7 +336,7 @@ func TestMain(m *testing.M) {
 	db, err := sql.Open("postgres", "user=test dbname=test1 sslmode=disable")
 	eh := email.NewSender("House Points Test", hostname, "587", testEmail1, password)
 	eh.SendMail = SendMail
-	a, err = DefaultHTTPAuth(db, "users", "www.test.com", eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))
+	a, err = DefaultHTTPAuth(db, "users", "www.test.com", false, eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Panic(err)
 	}

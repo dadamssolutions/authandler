@@ -50,6 +50,7 @@ type HTTPAuth struct {
 	emailHandler               *email.Sender
 	secret                     []byte
 	domainName                 string
+	allowXForwardedProto       bool
 	UsersTableName             string
 	LoginURL                   string
 	RedirectAfterLogin         string
@@ -74,12 +75,12 @@ type HTTPAuth struct {
 //
 // In order for this to work properly, you must also set the two email templates and the error template.
 // i.e. `auth.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))`
-func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
 	}
-	ah := &HTTPAuth{db: db, emailHandler: emailSender, UsersTableName: tableName, secret: secret}
+	ah := &HTTPAuth{db: db, emailHandler: emailSender, UsersTableName: tableName, secret: secret, allowXForwardedProto: allowXForwardedProto}
 	// Password hashing functions
 	ah.GenerateHashFromPassword = g
 	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
@@ -196,7 +197,7 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 // As of now, they are EnsureHHTPS. LoadOrCreateSession, and AttachSessionCookie (which is at the end)
 func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
-		firstAdapters := []adaptd.Adapter{adaptd.EnsureHTTPS(false), a.LoadOrCreateSession()}
+		firstAdapters := []adaptd.Adapter{adaptd.EnsureHTTPS(a.allowXForwardedProto), a.LoadOrCreateSession()}
 		otherAdapters = append(firstAdapters, otherAdapters...)
 		otherAdapters = append(otherAdapters, a.AttachSessionCookie())
 		return adaptd.Adapt(h, otherAdapters...)
