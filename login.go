@@ -24,7 +24,7 @@ func (a *HTTPAuth) LoginAdapter() adaptd.Adapter {
 
 	logOnError := "Bad login request. Try again."
 
-	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User requesting login page is logged in")}
+	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.RedirectHandlerWithMode(a.RedirectAfterLogin, http.StatusSeeOther, RedirectToQueryMode), "User requesting login page is logged in")}
 
 	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.logUserIn), a.RedirectAfterLogin, a.LoginURL, logOnError, adapters...)
 }

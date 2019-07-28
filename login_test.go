@@ -15,7 +15,7 @@ func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
-	ts.URL = ts.URL + "/login"
+	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	req, _ := http.NewRequest("GET", ts.URL, nil)
@@ -38,7 +38,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
-	ts.URL = ts.URL + "/login"
+	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
@@ -71,7 +71,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	req.AddCookie(ses.SessionCookie())
 	resp, err = client.Do(req)
 	redirectedURL, _ := resp.Location()
-	log.Println(resp.Cookies())
+
 	if err == nil || redirectedURL.Path != a.RedirectAfterLogin || len(resp.Cookies()) != 1 {
 		log.Println(err)
 		log.Println(redirectedURL.Path)
@@ -109,7 +109,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
-	ts.URL = ts.URL + "/login"
+	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
@@ -156,7 +156,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 	w := httptest.NewRecorder()
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
-	ts.URL = ts.URL + "/login"
+	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
@@ -205,7 +205,7 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
-	ts.URL = ts.URL + "/login"
+	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
@@ -242,7 +242,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
-	ts.URL = ts.URL + "/login"
+	ts.URL = ts.URL + "/login/"
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
@@ -259,10 +259,11 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	// POST request should not be valid because the CSRF token is not there
 	resp, err := client.Do(req)
 	loc, _ := resp.Location()
-	if err == nil || resp.StatusCode != http.StatusSeeOther || loc.Path != "/login" {
+	if err == nil || resp.StatusCode != http.StatusSeeOther || loc.Path != "/login/" {
 		log.Println(err)
 		log.Println(resp.StatusCode)
 		log.Println(loc.Path)
+		log.Println(ts.URL)
 		t.Error("Login attempt without CSRF token should redirect to login page")
 	}
 
@@ -297,5 +298,97 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 		t.Error("User should not be able to log in if they are unverified")
 	}
 
+	removeTestUserFromDatabase()
+}
+
+func TestUserLogInHandlerRedirecting(t *testing.T) {
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(testHand))
+	defer ts.Close()
+	ts.URL = ts.URL + "/user/"
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
+
+	// Should redirect user to login page
+	resp, err := client.Do(req)
+	loc, _ := resp.Location()
+	if err == nil || len(resp.Cookies()) != 1 || resp.StatusCode != http.StatusSeeOther || loc.Path != a.LoginURL || loc.Query().Get("redirect") != "/user/" {
+		log.Println(err)
+		log.Println(len(resp.Cookies()))
+		log.Println(resp.Status)
+		t.Error("Should be redirected to login page with redirect query string")
+	}
+}
+
+func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
+	addTestUserToDatabase(true)
+	num = 0
+	w := httptest.NewRecorder()
+
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login/?redirect=" + url.QueryEscape("/user/")
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "Dadams")
+	form.Set("password", strings.Repeat("e", 64))
+	form.Set("remember", "false")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
+
+	// POST request should not log user in with wrong password
+	resp, err := client.Do(req)
+	loc, _ := resp.Location()
+	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	_, errs := ses.Flashes()
+	if err == nil || len(resp.Cookies()) != 1 || loc.Path != a.LoginURL || ses.IsUserLoggedIn() || len(errs) != 1 || loc.Query().Get("redirect") != "/user/" {
+		log.Println(resp.Status)
+		log.Println(resp.Location())
+		log.Println(errs)
+		t.Error("Should be redirected to the login page with same query string after unsuccessful login attempt")
+	}
+	removeTestUserFromDatabase()
+}
+
+func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
+	addTestUserToDatabase(true)
+	num = 0
+	w := httptest.NewRecorder()
+
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
+	defer ts.Close()
+	ts.URL = ts.URL + "/login/?redirect=" + url.QueryEscape("/redirect/after/login/")
+	client := ts.Client()
+	client.CheckRedirect = checkRedirect
+
+	form := url.Values{}
+	form.Set("username", "dAdams")
+	form.Set("password", strings.Repeat("d", 64))
+	form.Set("remember", "false")
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
+	a.csrfHandler.GenerateNewToken(w)
+	req.AddCookie(w.Result().Cookies()[0])
+
+	// POST request should log user in
+	resp, err := client.Do(req)
+	loc, _ := resp.Location()
+	if err == nil || len(resp.Cookies()) != 1 || resp.StatusCode != http.StatusSeeOther || loc.Path != "/redirect/after/login/" {
+		log.Println(err)
+		log.Println(len(resp.Cookies()))
+		log.Println(resp.Status)
+		t.Error("Should be redirected to redirect query after a successful login")
+	}
+	ses, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+	if ses == nil || ses.IsPersistent() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
+		t.Error("The cookie on a login response is not valid")
+	}
 	removeTestUserFromDatabase()
 }

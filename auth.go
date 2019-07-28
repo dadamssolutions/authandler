@@ -145,12 +145,6 @@ func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, a
 	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetRequestAdapter())(passResetRequest))
 }
 
-// RedirectHandler ensures that the authentication aspects are taken care of before the redirect is sent.
-// One should use this instead of http.Redirect or a.RedirectHandler.
-func (a *HTTPAuth) RedirectHandler(url string, code int) http.Handler {
-	return a.AttachSessionCookie()(http.RedirectHandler(url, code))
-}
-
 // LoadOrCreateSession adapter loads a session if the request has the correct cookie.
 // If the request does not have the correct cookie, we create one, attach it to the response,
 // and put it on the Request's context.
@@ -215,7 +209,7 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 		return authenticated
 	}
 	adapters := []adaptd.Adapter{
-		adaptd.CheckAndRedirect(f, a.RedirectHandler(a.LoginURL, http.StatusSeeOther), "User not authenticated"),
+		adaptd.CheckAndRedirect(f, a.RedirectHandlerWithMode(a.LoginURL, http.StatusSeeOther, AddRedirectQueryMode), "User not authenticated"),
 	}
 	return a.MustHaveAdapters(adapters...)
 }
@@ -232,6 +226,7 @@ func (a *HTTPAuth) RedirectIfNoPermission(minRole Role) adaptd.Adapter {
 		return user.Role.HasRole(minRole)
 	}
 	adapters := []adaptd.Adapter{
+		a.RedirectIfUserNotAuthenticated(),
 		adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User does not have permission"),
 	}
 	return a.MustHaveAdapters(adapters...)
@@ -245,7 +240,7 @@ func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Ad
 	}
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			RedirectOnError(f, a.RedirectHandler(redirectOnError, http.StatusSeeOther), logOnError),
+			RedirectOnError(f, a.RedirectHandlerWithMode(redirectOnError, http.StatusSeeOther, RetainQueriesMode), logOnError),
 		}
 
 		return adaptd.Adapt(h, adapters...)
@@ -274,8 +269,8 @@ func (a *HTTPAuth) CSRFGetAdapter() adaptd.Adapter {
 // is logged to the console.
 func (a *HTTPAuth) StandardPostAndGetAdapter(postHandler http.Handler, redirectOnSuccess, redirectOnError, logOnError string, extraAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
-		onSuccess := a.RedirectHandler(redirectOnSuccess, http.StatusSeeOther)
-		onError := a.RedirectHandler(redirectOnError, http.StatusSeeOther)
+		onSuccess := a.RedirectHandlerWithMode(redirectOnSuccess, http.StatusSeeOther, RedirectToQueryMode)
+		onError := a.RedirectHandlerWithMode(redirectOnError, http.StatusSeeOther, RetainQueriesMode)
 		adapters := []adaptd.Adapter{
 			PostAndOtherOnError(a.CSRFPostAdapter(redirectOnError, logOnError)(postHandler), onSuccess, onError),
 		}
