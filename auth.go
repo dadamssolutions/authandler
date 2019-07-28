@@ -117,12 +117,12 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedPr
 	ah.LoginURL = "/login/"
 	ah.LogOutURL = "/logout/"
 	ah.RedirectAfterLogin = "/user/"
-	ah.SignUpURL = "/sign_up/"
-	ah.RedirectAfterSignUp = "/signed_up/"
-	ah.SignUpVerificationURL = "/verify_sign_up/"
-	ah.PasswordResetRequestURL = "/pass_reset_request/"
-	ah.PasswordResetURL = "/pass_reset/"
-	ah.RedirectAfterResetRequest = "/pass_reset_sent/"
+	ah.SignUpURL = "/sign-up/"
+	ah.RedirectAfterSignUp = "/signed-up/"
+	ah.SignUpVerificationURL = "/verify-sign-up/"
+	ah.PasswordResetRequestURL = "/pass-reset-request/"
+	ah.PasswordResetURL = "/pass-reset/"
+	ah.RedirectAfterResetRequest = "/pass-reset-sent/"
 	return ah, nil
 }
 
