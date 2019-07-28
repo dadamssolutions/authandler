@@ -24,6 +24,7 @@ func TestPasswordResetNoQuery(t *testing.T) {
 		log.Println(redirectURL.Path)
 		t.Error("Get request to password reset with no query should fail")
 	}
+	resp.Body.Close()
 }
 
 func TestPasswordResetLoggedIn(t *testing.T) {
@@ -42,6 +43,7 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Error("Get request to password reset with logged in user should go through")
 	}
+	resp.Body.Close()
 
 	// Fake log user out.
 	a.sesHandler.DestroySession(ses)
@@ -52,6 +54,7 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 		t.Error("Get request to password reset after user logged out should redirect")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -70,6 +73,7 @@ func TestPasswordResetValidQuery(t *testing.T) {
 		log.Println(resp.StatusCode, resp.Status)
 		t.Error("Get request to password reset with correct query should go through")
 	}
+	resp.Body.Close()
 
 	// Second request should be invalid
 	resp, err = client.Do(req)
@@ -78,6 +82,7 @@ func TestPasswordResetValidQuery(t *testing.T) {
 		t.Error("Get request to password reset with user query token should fail")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -109,6 +114,7 @@ func TestPasswordResetForm(t *testing.T) {
 		log.Println(resp.Location())
 		t.Error("Post request with valid token should redirect to " + a.LoginURL)
 	}
+	resp.Body.Close()
 
 	passHash, _ := getUserPasswordHash(a.db, a.UsersTableName, "dadams")
 	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("e"), 64)))) != nil {
@@ -143,6 +149,7 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 		log.Println(resp.Location())
 		t.Error("Post request without csrf token should redirect to " + a.PasswordResetURL)
 	}
+	resp.Body.Close()
 
 	passHash, _ := getUserPasswordHash(a.db, a.UsersTableName, "dadams")
 	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
@@ -178,6 +185,7 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 		log.Println(resp.Location())
 		t.Error("Post request without password reset token should redirect to " + a.PasswordResetURL)
 	}
+	resp.Body.Close()
 
 	passHash, _ := getUserPasswordHash(a.db, a.UsersTableName, "dadams")
 	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
@@ -200,6 +208,7 @@ func TestPasswordResetRequest(t *testing.T) {
 		log.Println(resp.Status)
 		t.Error("Valid password request returned unexpected response")
 	}
+	resp.Body.Close()
 }
 
 func TestSendPasswordResetEmail(t *testing.T) {
@@ -225,6 +234,7 @@ func TestSendPasswordResetEmail(t *testing.T) {
 		t.Error("Password email not sent properly")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -250,6 +260,8 @@ func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
 		log.Println(redirectURL.Path)
 		t.Error("Password reset email was sent without CSRF verification")
 	}
+
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -284,6 +296,8 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 			log.Println(redirectURL.Path)
 			t.Error("Password email sent when it shouldn't have been sent")
 		}
+
+		resp.Body.Close()
 	}
 
 	removeTestUserFromDatabase()

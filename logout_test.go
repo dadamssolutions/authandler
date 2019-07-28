@@ -24,6 +24,7 @@ func TestUserLogOutHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther || err != nil || loc.Path != "/" {
 		t.Error("Logout with no user logged in should just redirect to \"/\"")
 	}
+	resp.Body.Close()
 
 	// Cookie present. User should be logged out.
 	req.AddCookie(ses.SessionCookie())
@@ -37,6 +38,7 @@ func TestUserLogOutHandler(t *testing.T) {
 		log.Println(ses.IsUserLoggedIn())
 		t.Error("User not logged out properly")
 	}
+	resp.Body.Close()
 
 	// Cookie present, but already logged out. User should be redirected
 	resp, err = client.Do(req)
@@ -48,4 +50,5 @@ func TestUserLogOutHandler(t *testing.T) {
 		log.Println(ses.IsUserLoggedIn())
 		t.Error("User not logged out properly")
 	}
+	resp.Body.Close()
 }

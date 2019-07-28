@@ -26,6 +26,8 @@ func TestSignUp(t *testing.T) {
 	if err != nil || resp.StatusCode != http.StatusOK || cookie.Value == "" {
 		t.Error("Valid password request returned unexpected response")
 	}
+
+	resp.Body.Close()
 }
 
 func TestSignUpPost(t *testing.T) {
@@ -57,6 +59,7 @@ func TestSignUpPost(t *testing.T) {
 		t.Error("Sign up email not sent properly")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -94,6 +97,7 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 		if err == nil || resp.StatusCode != http.StatusSeeOther || loc.Path != a.SignUpURL {
 			t.Error("Password email sent when it shouldn't have been sent")
 		}
+		resp.Body.Close()
 	}
 
 	removeTestUserFromDatabase()
@@ -119,6 +123,7 @@ func TestUserValidation(t *testing.T) {
 		t.Error("User validation request passed, but user was not validated in the database")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -145,6 +150,7 @@ func TestUserValidationNoQuery(t *testing.T) {
 		t.Error("User validation request passed, but user was validated in the database incorrectly")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -169,6 +175,7 @@ func TestUserValidationBadQuery(t *testing.T) {
 		t.Error("User validation request passed, but user was validated in the database incorrectly")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -192,6 +199,7 @@ func TestUserCannotValidateIfLoggedIn(t *testing.T) {
 		t.Error("User was able to verify while logged in")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -223,6 +231,7 @@ func TestUsernameExists(t *testing.T) {
 		t.Error("Duplicated username was accepted in error")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -254,5 +263,6 @@ func TestEmailExists(t *testing.T) {
 		t.Error("Duplicated email was accepted in error")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }

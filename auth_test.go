@@ -89,6 +89,7 @@ func TestUserNotLoggedInHandler(t *testing.T) {
 		log.Println(len(resp.Cookies()))
 		t.Error("Not redirected when user is not logged in")
 	}
+	resp.Body.Close()
 }
 
 func TestUserLoggedInHandler(t *testing.T) {
@@ -114,6 +115,7 @@ func TestUserLoggedInHandler(t *testing.T) {
 		log.Println(len(resp.Cookies()))
 		t.Error("Cookie attached to response does not correspond to the session")
 	}
+	resp.Body.Close()
 }
 
 func TestUserHasRole(t *testing.T) {
@@ -135,6 +137,7 @@ func TestUserHasRole(t *testing.T) {
 	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
 		t.Error("Redirected, but user has permission")
 	}
+	resp.Body.Close()
 
 	user.Role = Admin
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -147,6 +150,7 @@ func TestUserHasRole(t *testing.T) {
 	if err != nil || resp.StatusCode != http.StatusOK || num != 2 {
 		t.Error("Redirected, but user has permission")
 	}
+	resp.Body.Close()
 
 	removeTestUserFromDatabase()
 }
@@ -170,6 +174,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
 		t.Error("Not redirected when user does not have permission")
 	}
+	resp.Body.Close()
 
 	user.Role = Manager
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -182,6 +187,7 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
 		t.Error("Not redirected when user does not have permission")
 	}
+	resp.Body.Close()
 
 	removeTestUserFromDatabase()
 }

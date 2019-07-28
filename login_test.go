@@ -27,6 +27,7 @@ func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
 		log.Println(resp.Status)
 		t.Error("Request redirected in error")
 	}
+	resp.Body.Close()
 
 	removeTestUserFromDatabase()
 }
@@ -65,6 +66,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	if ses == nil || ses.IsPersistent() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
 		t.Error("The cookie on a login response is not valid")
 	}
+	resp.Body.Close()
 
 	// Now user should be redirected when visiting login page
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -81,6 +83,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Error("Login GET request with user logged in should redirect")
 	}
+	resp.Body.Close()
 
 	// Log user out
 	ses, _ = a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
@@ -98,6 +101,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 		log.Println(resp.StatusCode, num)
 		t.Error("Login GET request with no user logged in should not redirect")
 	}
+	resp.Body.Close()
 
 	removeTestUserFromDatabase()
 }
@@ -134,6 +138,8 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 		log.Println(errs)
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
+	resp.Body.Close()
+
 	w = httptest.NewRecorder()
 	form.Set("username", "nadams")
 	req, _ = http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
@@ -147,6 +153,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 		t.Error("Should be redirected to the login page after unsuccessful login attempt")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -180,6 +187,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 	if err != nil || !ses.IsPersistent() {
 		t.Error("Session created should be persistent with 'Remember me'")
 	}
+	resp.Body.Close()
 
 	cookie := ses.SessionCookie()
 	a.sesHandler.DestroySession(ses)
@@ -195,6 +203,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 		t.Error("Login GET request with no user logged in should not redirect")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -233,6 +242,7 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 	// Log the user out
 	a.sesHandler.DestroySession(ses)
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -267,6 +277,7 @@ func TestUserLogInHandlerNoCSRF(t *testing.T) {
 		t.Error("Login attempt without CSRF token should redirect to login page")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 func TestUserNotValidatedCannotLogIn(t *testing.T) {
@@ -298,6 +309,7 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 		t.Error("User should not be able to log in if they are unverified")
 	}
 
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -319,6 +331,8 @@ func TestUserLogInHandlerRedirecting(t *testing.T) {
 		log.Println(resp.Status)
 		t.Error("Should be redirected to login page with redirect query string")
 	}
+
+	resp.Body.Close()
 }
 
 func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
@@ -353,6 +367,8 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 		log.Println(errs)
 		t.Error("Should be redirected to the login page with same query string after unsuccessful login attempt")
 	}
+
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
 
@@ -390,5 +406,7 @@ func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
 	if ses == nil || ses.IsPersistent() || ses.Username() != "dadams" || !ses.IsUserLoggedIn() {
 		t.Error("The cookie on a login response is not valid")
 	}
+
+	resp.Body.Close()
 	removeTestUserFromDatabase()
 }
