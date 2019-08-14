@@ -32,7 +32,18 @@ type Sender struct {
 
 // NewSender returns an email handler for sending messages from a single address.
 func NewSender(organization, hostname, port, username, password string) *Sender {
-	return &Sender{hostname, port, username, organization, smtpauth.NewLoginAuth(username, password), smtp.SendMail}
+	return NewSenderAuth(organization, hostname, port, username, smtpauth.NewLoginAuth(username, password))
+}
+
+// NewSenderAuth returns an email handler for sending messages from a single address provided an smtp.Auth.
+func NewSenderAuth(organization, hostname, port, email string, auth smtp.Auth) *Sender {
+	return &Sender{
+		Organization: organization,
+		hostname:     hostname,
+		port:         port,
+		username:     email,
+		auth:         auth,
+		SendMail:     smtp.SendMail}
 }
 
 // SendMessage sends the message (as an HTML template) to the recipients
