@@ -9,6 +9,7 @@ This package should be not be uses without seshandler which manages sessions for
 package sessions
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
@@ -228,7 +229,7 @@ func (s *Session) ValuesAsText() string {
 	if err != nil {
 		log.Println(err)
 	}
-	return string(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // TextToValues converts the string to a values map for the session.
@@ -236,7 +237,11 @@ func (s *Session) ValuesAsText() string {
 func (s *Session) TextToValues(text string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	err := json.Unmarshal([]byte(text), &s.values)
+	textBytes, err := base64.RawURLEncoding.DecodeString(text)
+	if err != nil {
+		return errors.New("Cannot convert text to values for session")
+	}
+	err = json.Unmarshal(textBytes, &s.values)
 	if err != nil {
 		return errors.New("Cannot convert text to values for session")
 	}
