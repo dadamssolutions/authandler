@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
@@ -117,6 +118,16 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailDoesNotExist)))
 		return
 	}
+	sendEmail, err := strconv.ParseBool(r.PostFormValue("sendEmail"))
+	redirectPath := r.PostFormValue("redirect")
+	a.userIsAuthenticated(w, r)
+	admin := UserFromContext(r.Context())
+	if err != nil || admin == nil || !admin.HasPermission(Admin) {
+		// If there was nothing to parse, then we assume that the email should be sent
+		sendEmail = true
+	} else if redirectPath == "" {
+		redirectPath = "/"
+	}
 
 	user := getUserFromDB(a.db, a.UsersTableName, "email", strings.ToLower(addr.Address))
 	if user == nil {
@@ -127,9 +138,16 @@ func (a *HTTPAuth) passwordResetRequest(w http.ResponseWriter, r *http.Request) 
 
 	data := make(map[string]interface{})
 	data["Link"] = a.domainName + a.PasswordResetURL + "?" + token.Query()
-	err = a.emailHandler.SendMessage(a.PasswordResetEmailTemplate, "Password Reset Request", data, user)
-	if err != nil {
-		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+	if sendEmail {
+		err = a.emailHandler.SendMessage(a.PasswordResetEmailTemplate, "Password Reset Request", data, user)
+		if err != nil {
+			*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		}
+		log.Println(fmt.Sprintf("Password reset email sent to %v", user.Username))
+	} else {
+		session := SessionFromContext(r.Context())
+		session.AddMessage("Please send the following link:")
+		session.AddMessage(data["Link"])
+		a.RedirectHandler(redirectPath, http.StatusSeeOther).ServeHTTP(w, r)
 	}
-	log.Println(fmt.Sprintf("Password reset email sent to %v", user.Username))
 }

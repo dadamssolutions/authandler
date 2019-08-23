@@ -3,6 +3,7 @@ package authandler
 // Error codes
 const (
 	BadLogin = iota
+	InvalidUserID
 	UsernameExists
 	EmailExists
 	UserDoesNotExist
@@ -24,6 +25,8 @@ func NewError(code int) Error {
 	switch code {
 	case BadLogin:
 		return Error{BadLogin, "Username or password is not valid"}
+	case InvalidUserID:
+		return Error{InvalidUserID, "Used ID is not valid"}
 	case UsernameExists:
 		return Error{UsernameExists, "Username or password is not valid"}
 	case EmailExists:
