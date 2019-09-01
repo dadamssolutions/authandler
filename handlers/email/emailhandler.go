@@ -4,9 +4,11 @@ package email
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/smtp"
 
 	"github.com/dadamssolutions/authandler/handlers/email/smtpauth"
@@ -43,7 +45,7 @@ func NewSenderAuth(organization, hostname, port, email string, auth smtp.Auth) *
 		port:         port,
 		username:     email,
 		auth:         auth,
-		SendMail:     smtp.SendMail}
+		SendMail:     SendMailSSL}
 }
 
 // SendMessage sends the message (as an HTML template) to the recipients
@@ -87,4 +89,56 @@ func (e *Sender) SendSignUpMessage(temp *template.Template, receiver Recipient, 
 	data := make(map[string]interface{})
 	data["Link"] = resetURL
 	return e.SendMessage(temp, "Welcome! One more step", data, receiver)
+}
+
+// SendMailSSL dials an SSL connection to send messages.
+func SendMailSSL(addr string, auth smtp.Auth, username string, recpts []string, message []byte) error {
+	// TLS config
+	host, _, _ := net.SplitHostPort(addr)
+	tlsconfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+	}
+
+	conn, err := tls.Dial("tcp", addr, tlsconfig)
+	if err != nil {
+		return err
+	}
+
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+
+	// Auth
+	if err = c.Auth(auth); err != nil {
+		return err
+	}
+
+	// To && From
+	if err = c.Mail(username); err != nil {
+		return err
+	}
+
+	if err = c.Rcpt(recpts[0]); err != nil {
+		return err
+	}
+
+	// Data
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(message)
+	if err != nil {
+		return err
+	}
+
+	err = w.Close()
+	if err != nil {
+		return err
+	}
+
+	return c.Quit()
 }
