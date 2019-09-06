@@ -57,7 +57,7 @@ func (a *HTTPAuth) SignUpVerificationAdapter() adaptd.Adapter {
 func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	// If the user is authenticated already, then we just redirect
 	if a.userIsAuthenticated(w, r) {
-		log.Printf("User requesting login page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
+		log.Printf("User requesting sign up page, but is already logged in. Redirecting to %v\n", a.RedirectAfterLogin)
 		return
 	}
 	// If the user is not logged in, we get the information and validate it

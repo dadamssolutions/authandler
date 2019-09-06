@@ -44,7 +44,7 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromDB(a.db, a.UsersTableName, "username", username)
 	// If the user cannot be found by username, then we look for the email address.
 	if user == nil {
-		user = getUserFromDB(a.db, a.UsersTableName, "email", r.PostFormValue("username"))
+		user = getUserFromDB(a.db, a.UsersTableName, "email", strings.ToLower(r.PostFormValue("username")))
 	}
 	// If the user has provided correct credentials, then we log them in by creating a session.
 	if user != nil && user.IsValidated() && a.CompareHashAndPassword(user.passHash, []byte(password)) == nil {
