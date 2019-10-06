@@ -1,6 +1,7 @@
 package authandler
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
+	"github.com/dadamssolutions/authandler/handlers/session"
 )
 
 // LoginAdapter handles the login GET and POST requests
@@ -41,15 +43,16 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 	username = strings.ToLower(username)
 	remember := url.QueryEscape(r.PostFormValue("remember"))
 	rememberMe, _ := strconv.ParseBool(remember)
-	user := getUserFromDB(a.db, a.UsersTableName, "username", username)
+	tx := session.TxFromContext(r.Context())
+	user := getUserFromDB(tx, a.usersTableName, "username", username)
 	// If the user cannot be found by username, then we look for the email address.
 	if user == nil {
-		user = getUserFromDB(a.db, a.UsersTableName, "email", strings.ToLower(r.PostFormValue("username")))
+		user = getUserFromDB(tx, a.usersTableName, "email", strings.ToLower(r.PostFormValue("username")))
 	}
 	// If the user has provided correct credentials, then we log them in by creating a session.
 	if user != nil && user.IsValidated() && a.CompareHashAndPassword(user.passHash, []byte(password)) == nil {
-		ses = a.sesHandler.CopySession(ses, rememberMe)
-		a.sesHandler.LogUserIn(ses, user.Username)
+		ses = a.sesHandler.CopySession(tx, ses, rememberMe)
+		a.sesHandler.LogUserIn(tx, ses, user.Username)
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
 
@@ -57,7 +60,7 @@ func (a *HTTPAuth) logUserIn(w http.ResponseWriter, r *http.Request) {
 		log.Printf("User %v logged in successfully. Redirecting to %v\n", user.Username, a.RedirectAfterLogin)
 	} else {
 		log.Printf("User %v login failed, redirecting back to login page\n", username)
-		err := NewError(BadLogin)
+		err := fmt.Errorf("Login failed, please try again")
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 	}
 	*r = *r.WithContext(NewSessionContext(r.Context(), ses))

@@ -8,12 +8,18 @@ import (
 )
 
 func TestUserLogOutHandler(t *testing.T) {
-	ts := httptest.NewTLSServer(a.LogoutAdapter("/")(testHand))
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.LogoutAdapter("/"))(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	req, _ := http.NewRequest("GET", ts.URL, nil)
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	tx, _ := db.Begin()
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
+	tx.Commit()
 
 	// No cookie present so should just redirect
 	resp, err := client.Do(req)
@@ -31,24 +37,31 @@ func TestUserLogOutHandler(t *testing.T) {
 	resp, err = client.Do(req)
 	if err == nil || len(resp.Cookies()) != 1 {
 		log.Println(resp.Cookies())
-		t.Fatal("Request not redirected")
+		t.Error("Request not redirected")
 	}
-	newSession, _ := a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+
+	tx, _ = db.Begin()
+	newSession, _ := a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
 	if resp.StatusCode != http.StatusSeeOther || newSession.IsUserLoggedIn() {
-		log.Println(ses.IsUserLoggedIn())
+		log.Println(newSession.IsUserLoggedIn())
 		t.Error("User not logged out properly")
 	}
 	resp.Body.Close()
+	tx.Commit()
 
 	// Cookie present, but already logged out. User should be redirected
 	resp, err = client.Do(req)
 	if err == nil {
 		t.Error("Request not redirected")
 	}
-	newSession, _ = a.sesHandler.ParseSessionCookie(resp.Cookies()[0])
+
+	tx, _ = db.Begin()
+	newSession, _ = a.sesHandler.ParseSessionCookie(tx, resp.Cookies()[0])
 	if resp.StatusCode != http.StatusSeeOther || newSession.IsUserLoggedIn() {
 		log.Println(ses.IsUserLoggedIn())
 		t.Error("User not logged out properly")
 	}
 	resp.Body.Close()
+	tx.Commit()
+	removeTestUserFromDatabase()
 }

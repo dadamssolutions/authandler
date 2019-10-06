@@ -1,10 +1,14 @@
 package authandler
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/dadamssolutions/adaptd"
+	"github.com/dadamssolutions/authandler/handlers/session"
 )
 
 // RedirectIfErrorOnContext checks for an error on the Request's context.
@@ -57,6 +61,42 @@ func PostAndOtherOnError(postHandler http.Handler, redirectOnSuccess, redirectOn
 				return
 			}
 			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+// PutTxOnContext puts a new database transaction on the context before calling the passed handler.
+// If the transaction that is put on the context should be rolledback, then panic should be called.
+// PutTxOnContext will recover from the panic and report a 500 error.
+// If starting the transaction fails, then panic is called.
+func PutTxOnContext(db *sql.DB) adaptd.Adapter {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tx, err := db.Begin()
+			if err != nil || tx == nil {
+				panic(err)
+			}
+
+			defer func() {
+				if r := recover(); r != nil {
+					var err error
+					switch r := r.(type) {
+					case error:
+						err = r
+					default:
+						err = fmt.Errorf("Panic Error: %v", r)
+					}
+					w.WriteHeader(http.StatusInternalServerError)
+					log.Printf("Transaction is being rolled back: %s", err.Error())
+					tx.Rollback()
+				}
+			}()
+
+			h.ServeHTTP(w, r.WithContext(session.NewTxContext(r.Context(), tx)))
+
+			if err = tx.Commit(); err != nil {
+				panic(err)
+			}
 		})
 	}
 }
