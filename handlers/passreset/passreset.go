@@ -38,9 +38,9 @@ func NewHandler(db *sql.DB, tableName string, timeout time.Duration, secret []by
 }
 
 // GenerateNewToken generates a new token for protecting against CSRF
-func (c *Handler) GenerateNewToken(username string) *Token {
-	ses, err := c.CreateSession(username, false)
-	if err != nil {
+func (c *Handler) GenerateNewToken(tx *sql.Tx, username string) *Token {
+	ses := c.CreateSession(tx, username, false)
+	if ses == nil {
 		log.Println("Error creating a new password reset token")
 		return nil
 	}
@@ -50,7 +50,8 @@ func (c *Handler) GenerateNewToken(username string) *Token {
 // ValidToken verifies that a password reset token is valid and then destroys it.
 // Returns the username of the user for a valid token and "" when there is an error.
 func (c *Handler) ValidToken(r *http.Request) (string, error) {
-	return c.verifyToken(r.URL.Query().Get(queryName))
+	tx := session.TxFromContext(r.Context())
+	return c.verifyToken(tx, r.URL.Query().Get(queryName))
 }
 
 // ValidHeaderToken verifies that a password reset token is valid and then destroys it.
@@ -60,16 +61,17 @@ func (c *Handler) ValidHeaderToken(r *http.Request) (string, error) {
 	if cookie == nil {
 		return "", errors.New("No password reset cookie")
 	}
-	return c.verifyToken(strings.Replace(cookie.Value, queryName+"=", "", 1))
+	tx := session.TxFromContext(r.Context())
+	return c.verifyToken(tx, strings.Replace(cookie.Value, queryName+"=", "", 1))
 }
 
-func (c *Handler) verifyToken(token string) (string, error) {
-	ses, err := c.ParseSessionCookie(&http.Cookie{Name: CookieName, Value: token})
+func (c *Handler) verifyToken(tx *sql.Tx, token string) (string, error) {
+	ses, err := c.ParseSessionCookie(tx, &http.Cookie{Name: CookieName, Value: token})
 	if err != nil {
 		err = fmt.Errorf("Password reset token %v was not valid", token)
 		log.Println(err)
 		return "", err
 	}
-	c.DestroySession(ses)
+	c.DestroySession(tx, ses)
 	return ses.Username(), nil
 }

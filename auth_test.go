@@ -19,14 +19,15 @@ import (
 	"time"
 
 	"github.com/dadamssolutions/authandler/handlers/email"
+	"github.com/dadamssolutions/authandler/handlers/session"
 )
 
 var a *HTTPAuth
 var num int
 var testHand testHandler
+var db *sql.DB
 
 func checkRedirect(req *http.Request, via []*http.Request) error {
-	log.Println(req.Method)
 	return fmt.Errorf("Redirected to %v", req.URL)
 }
 
@@ -57,27 +58,31 @@ func deleteTestTables(db *sql.DB, tableName ...string) error {
 	return tx.Commit()
 }
 
-func addTestUserToDatabase(validated bool) {
+func addTestUserToDatabase(validated bool) error {
 	// Add user to the database for testing
 	pass := strings.Repeat("d", 64)
 	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
-	tx, _ := a.db.Begin()
-	tx.Exec(fmt.Sprintf("INSERT INTO users (username, email, pass_hash, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v);", base64.RawURLEncoding.EncodeToString(passHash), validated))
-	tx.Commit()
+	tx, _ := db.Begin()
+	_, err := tx.Exec(fmt.Sprintf("INSERT INTO %v (username, email, pass_hash, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v);", a.usersTableName, base64.RawURLEncoding.EncodeToString(passHash), validated))
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func removeTestUserFromDatabase() {
 	// Remove user from database
-	tx, _ := a.db.Begin()
+	tx, _ := db.Begin()
 	tx.Exec("DELETE FROM sessions WHERE user_id = 'dadams';")
 	tx.Exec("DELETE FROM csrfs WHERE user_id = 'dadams';")
-	tx.Exec("DELETE FROM users WHERE username = 'dadams';")
+	tx.Exec("DELETE FROM auth_users WHERE username = 'dadams';")
 	tx.Commit()
 }
 
 func TestUserNotLoggedInHandler(t *testing.T) {
 	num = 0
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 
 	client := ts.Client()
@@ -94,16 +99,19 @@ func TestUserNotLoggedInHandler(t *testing.T) {
 
 func TestUserLoggedInHandler(t *testing.T) {
 	num = 0
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
+	tx, _ := db.Begin()
+	defer catchTxError(tx, t, false)
 	// Create the user logged in session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
@@ -119,19 +127,25 @@ func TestUserLoggedInHandler(t *testing.T) {
 }
 
 func TestUserHasRole(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 	num = 0
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfNoPermission(0))(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfNoPermission(0))(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
+	tx, _ := db.Begin()
 	// Create the user logged in session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	user := a.CurrentUser(req)
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK || num != 1 {
@@ -142,9 +156,11 @@ func TestUserHasRole(t *testing.T) {
 	user.Role = Admin
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
 
+	tx, _ = db.Begin()
 	// Create the user logged in session
-	ses, _ = a.sesHandler.CreateSession("dadams", true)
+	ses = a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
+	tx.Commit()
 
 	resp, err = client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK || num != 2 {
@@ -156,19 +172,25 @@ func TestUserHasRole(t *testing.T) {
 }
 
 func TestUserDoesNotHaveRole(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 	num = 0
-	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.RedirectIfNoPermission(2))(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.RedirectIfNoPermission(2))(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
 
+	tx, _ := db.Begin()
 	// Create the user logged in session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	user := a.CurrentUser(req)
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
@@ -179,9 +201,11 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 	user.Role = Manager
 	req, _ = http.NewRequest(http.MethodGet, ts.URL, nil)
 
+	tx, _ = db.Begin()
 	// Create the user logged in session
-	ses, _ = a.sesHandler.CreateSession("dadams", true)
+	ses = a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
+	tx.Commit()
 
 	resp, err = client.Do(req)
 	if err == nil || resp.StatusCode != http.StatusSeeOther || num != 0 {
@@ -193,48 +217,68 @@ func TestUserDoesNotHaveRole(t *testing.T) {
 }
 
 func TestCurrentUserBadCookie(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	tx, _ := db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 
 	if a.CurrentUser(req) != nil {
 		t.Error("No cookie in request should return empty string")
 	}
+	tx.Commit()
 
+	tx, _ = db.Begin()
 	// Create the user logged in session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
-	a.sesHandler.DestroySession(ses)
+	a.sesHandler.DestroySession(tx, ses)
 
 	if a.CurrentUser(req) != nil {
 		t.Error("Destroyed cookie in request should return empty string")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestCurrentUserGoodCookie(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
+	tx, _ := db.Begin()
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
+
 	// Create the user logged in session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
 
 	if a.CurrentUser(req).Username != "dadams" {
 		t.Error("Valid cookie in request should return correct user")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestCurrentUserFromContext(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
 	user := &User{FirstName: "Donnie", LastName: "Adams", Username: "dadams", Email: "test%40gmail.com"}
-	ses, _ := a.sesHandler.CreateSession(user.Username, false)
+
+	tx, _ := db.Begin()
+	ses := a.sesHandler.CreateSession(tx, user.Username, false)
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
-	req = req.WithContext(NewUserContext(req.Context(), user))
+	req = req.WithContext(session.NewTxContext(req.WithContext(NewUserContext(req.Context(), user)).Context(), tx))
 
 	userFromContext := a.CurrentUser(req)
 
@@ -250,16 +294,23 @@ func TestCurrentUserFromContext(t *testing.T) {
 	if userFromContext == nil || userFromContext.Username != "dadams" {
 		t.Error("Valid cookie in request should return correct user")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestIsCurrentUser(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
+	tx, _ := db.Begin()
 
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
+
 	// Create the user logged in session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
 
 	if !a.IsCurrentUser(req, "dadams") {
@@ -274,48 +325,66 @@ func TestIsCurrentUser(t *testing.T) {
 		t.Error("Current user should automatically be false if username is empty")
 	}
 
-	a.sesHandler.DestroySession(ses)
+	a.sesHandler.DestroySession(tx, ses)
 	if a.IsCurrentUser(req, "dadams") {
 		t.Error("Current user should not be dadams with destroyed cookie")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
-func TestGetUserPasswordHash(t *testing.T) {
-	addTestUserToDatabase(true)
+func TestGetUserNotInDatabasePasswordHash(t *testing.T) {
+	var b []byte
+	tx, _ := db.Begin()
+	defer catchTxError(tx, t, true)
+	defer func() {
+		if b != nil {
+			t.Error("User not in database returned a valid password hash")
+		}
+	}()
+	b = getUserPasswordHash(tx, a.usersTableName, "nadams")
+}
 
-	b, err := getUserPasswordHash(a.db, a.UsersTableName, "nadams")
-	if b != nil || err == nil {
-		t.Error("User not in database returned a valid password hash")
+func TestGetUserInDatabasePasswordHash(t *testing.T) {
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
 	}
+	tx, _ := db.Begin()
 
-	b, err = getUserPasswordHash(a.db, a.UsersTableName, "dadams")
-	err = a.CompareHashAndPassword(b, []byte(strings.Repeat("d", 64)))
-	if b == nil || err != nil {
+	b := getUserPasswordHash(tx, a.usersTableName, "dadams")
+	a.CompareHashAndPassword(b, []byte(strings.Repeat("d", 64)))
+	if b == nil {
 		log.Println(b)
-		log.Println(err)
 		t.Error("User in database returned an invalid password hash")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestUpdateUserLastAccess(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 	epoch, _ := time.Parse(dateLayout, "1970-01-01 00:00:00")
 
-	updateTime := getUserLastAccess(a.db, a.UsersTableName, "dadams")
+	tx, _ := db.Begin()
+	updateTime := getUserLastAccess(tx, a.usersTableName, "dadams")
 	if !updateTime.Equal(epoch) {
 		t.Error("User should be created with epoch time as last access time")
 	}
 
 	now := time.Now()
-	err := updateUserLastAccess(a.db, a.UsersTableName, "dadams")
-	updateTime = getUserLastAccess(a.db, a.UsersTableName, "dadams")
-	if err != nil || updateTime.Equal(now) {
+	updateUserLastAccess(tx, a.usersTableName, "dadams")
+	updateTime = getUserLastAccess(tx, a.usersTableName, "dadams")
+	if updateTime.Equal(now) {
 		t.Error("User access time not updated")
 	}
+	tx.Commit()
+	removeTestUserFromDatabase()
 }
 
 // A Test send mail function so actual emails are not sent
@@ -339,19 +408,35 @@ func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []b
 
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	db, err := sql.Open("postgres", "user=test dbname=test1 sslmode=disable")
+	var err error
+	db, err = sql.Open("postgres", "user=test dbname=test1 sslmode=disable")
 	eh := email.NewSender("House Points Test", hostname, "587", testEmail1, password)
 	eh.SendMail = SendMail
-	a, err = DefaultHTTPAuth(db, "users", "www.test.com", false, eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))
+	a, err = DefaultHTTPAuth(db, "auth_users", "www.test.com", false, eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Panic(err)
 	}
 	a.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))
 	a.SignUpEmailTemplate = template.Must(template.ParseFiles("templates/signup.tmpl.html"))
 	testHand = testHandler{}
+	log.Println("Running test suite now")
 	exitCode := m.Run()
 	// Wait a little bit for the sessions to be removed
-	time.Sleep(time.Second)
-	deleteTestTables(a.db, a.UsersTableName, a.sesHandler.GetTableName(), a.csrfHandler.GetTableName(), a.passResetHandler.GetTableName())
+	time.Sleep(time.Second * 2)
 	os.Exit(exitCode)
+}
+
+func catchTxError(tx *sql.Tx, t *testing.T, errorExpected bool) {
+	if r := recover(); r != nil {
+		log.Println(r)
+		tx.Rollback()
+		if !errorExpected {
+			t.Error(r)
+		}
+	} else {
+		tx.Commit()
+		if errorExpected {
+			t.Error("Error was expected, but not was created")
+		}
+	}
 }

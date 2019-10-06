@@ -8,10 +8,12 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/dadamssolutions/authandler/handlers/session"
 )
 
 func TestPasswordResetNoQuery(t *testing.T) {
-	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -28,16 +30,21 @@ func TestPasswordResetNoQuery(t *testing.T) {
 }
 
 func TestPasswordResetLoggedIn(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
-	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	req, _ := http.NewRequest("GET", ts.URL, nil)
 	// Fake log a user in
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	tx, _ := db.Begin()
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req.AddCookie(ses.SessionCookie())
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -46,7 +53,9 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 	resp.Body.Close()
 
 	// Fake log user out.
-	a.sesHandler.DestroySession(ses)
+	tx, _ = db.Begin()
+	a.sesHandler.DestroySession(tx, ses)
+	tx.Commit()
 
 	resp, err = client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -59,10 +68,15 @@ func TestPasswordResetLoggedIn(t *testing.T) {
 }
 
 func TestPasswordResetValidQuery(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
-	token := a.passResetHandler.GenerateNewToken("dadams")
-	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
+	tx, _ := db.Begin()
+	token := a.passResetHandler.GenerateNewToken(tx, "dadams")
+	tx.Commit()
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -87,11 +101,16 @@ func TestPasswordResetValidQuery(t *testing.T) {
 }
 
 func TestPasswordResetForm(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 	w := httptest.NewRecorder()
 
-	token := a.passResetHandler.GenerateNewToken("dadams")
-	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
+	tx, _ := db.Begin()
+	token := a.passResetHandler.GenerateNewToken(tx, "dadams")
+	tx.Commit()
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -101,10 +120,13 @@ func TestPasswordResetForm(t *testing.T) {
 	form.Set("repeatedPassword", strings.Repeat("e", 64))
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	tx, _ = db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 	req.AddCookie(token.SessionCookie())
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -116,19 +138,26 @@ func TestPasswordResetForm(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	passHash, _ := getUserPasswordHash(a.db, a.UsersTableName, "dadams")
+	tx, _ = db.Begin()
+	passHash := getUserPasswordHash(tx, a.usersTableName, "dadams")
 	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("e"), 64)))) != nil {
 		t.Error("Password hash wasn't updated properly")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestPasswordResetNoCSRF(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
-	token := a.passResetHandler.GenerateNewToken("dadams")
-	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
+	tx, _ := db.Begin()
+	token := a.passResetHandler.GenerateNewToken(tx, "dadams")
+	tx.Commit()
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -151,19 +180,24 @@ func TestPasswordResetNoCSRF(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	passHash, _ := getUserPasswordHash(a.db, a.UsersTableName, "dadams")
+	tx, _ = db.Begin()
+	passHash := getUserPasswordHash(tx, a.usersTableName, "dadams")
 	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
 		t.Error("Password hash was updated when it shouldn't have")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestPasswordResetNoPasswordToken(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.PasswordResetAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -173,8 +207,10 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 	form.Set("repeatedPassword", strings.Repeat("e", 64))
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	tx, _ := db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
@@ -186,22 +222,24 @@ func TestPasswordResetNoPasswordToken(t *testing.T) {
 		t.Error("Post request without password reset token should redirect to " + a.PasswordResetURL)
 	}
 	resp.Body.Close()
+	tx.Commit()
 
-	passHash, _ := getUserPasswordHash(a.db, a.UsersTableName, "dadams")
+	tx, _ = db.Begin()
+	passHash := getUserPasswordHash(tx, a.usersTableName, "dadams")
 	if a.CompareHashAndPassword(passHash, ([]byte(bytes.Repeat([]byte("d"), 64)))) != nil {
 		t.Error("Password hash was updated when it shouldn't have")
 	}
+	tx.Commit()
 
 	removeTestUserFromDatabase()
 }
 
 func TestPasswordResetRequest(t *testing.T) {
-	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetRequestAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	req, _ := http.NewRequest(http.MethodGet, ts.URL, nil)
-
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK || resp.Cookies()[0].Value == "" {
 		log.Println(err)
@@ -212,10 +250,13 @@ func TestPasswordResetRequest(t *testing.T) {
 }
 
 func TestSendPasswordResetEmail(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 	w := httptest.NewRecorder()
 
-	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetRequestAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -224,9 +265,12 @@ func TestSendPasswordResetEmail(t *testing.T) {
 	form.Set("email", "test@gmail.com")
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	tx, _ := db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -239,7 +283,10 @@ func TestSendPasswordResetEmail(t *testing.T) {
 }
 
 func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
 	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter()(testHand))
 	defer ts.Close()
@@ -266,9 +313,12 @@ func TestSendPasswordResetEmailWithoutCSRF(t *testing.T) {
 }
 
 func TestSendPasswordResetEmailBadEmail(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
-	ts := httptest.NewTLSServer(a.PasswordResetRequestAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.PasswordResetRequestAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -282,11 +332,15 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 	}
 
 	for _, f := range testCases {
+		url := f.Encode()
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(f.Encode()))
+		tx, _ := db.Begin()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(url))
+		req = req.WithContext(session.NewTxContext(req.Context(), tx))
 		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-		a.csrfHandler.GenerateNewToken(w)
+		a.csrfHandler.GenerateNewToken(w, req)
 		req.AddCookie(w.Result().Cookies()[0])
+		tx.Commit()
 
 		resp, err := client.Do(req)
 		redirectURL, _ := resp.Location()
@@ -296,8 +350,6 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 			log.Println(redirectURL.Path)
 			t.Error("Password email sent when it shouldn't have been sent")
 		}
-
-		resp.Body.Close()
 	}
 
 	removeTestUserFromDatabase()

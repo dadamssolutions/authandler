@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/dadamssolutions/authandler/handlers/csrf"
+	"github.com/dadamssolutions/authandler/handlers/session"
 )
 
 func TestSignUp(t *testing.T) {
-	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -31,7 +32,7 @@ func TestSignUp(t *testing.T) {
 }
 
 func TestSignUpPost(t *testing.T) {
-	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -45,10 +46,13 @@ func TestSignUpPost(t *testing.T) {
 	form.Set("password", strings.Repeat("d", 32))
 	form.Set("repeatedPassword", strings.Repeat("d", 32))
 
+	tx, _ := db.Begin()
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -64,9 +68,12 @@ func TestSignUpPost(t *testing.T) {
 }
 
 func TestSignUpPostErrorChecking(t *testing.T) {
-	addTestUserToDatabase(true)
+	err := addTestUserToDatabase(true)
+	if err != nil {
+		t.Error(err)
+	}
 
-	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -88,8 +95,10 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 		f := url.Values{"firstName": []string{v.firstName}, "lastName": []string{v.lastName}, "username": []string{v.username}, "email": []string{v.email}, "password": []string{v.password}, "repeatedPassword": []string{v.repeatedPassword}}
 
 		req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(f.Encode()))
+		tx, _ := db.Begin()
+		req = req.WithContext(session.NewTxContext(req.Context(), tx))
 		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-		a.csrfHandler.GenerateNewToken(w)
+		a.csrfHandler.GenerateNewToken(w, req)
 		req.AddCookie(w.Result().Cookies()[0])
 
 		resp, err := client.Do(req)
@@ -98,38 +107,49 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 			t.Error("Password email sent when it shouldn't have been sent")
 		}
 		resp.Body.Close()
+		tx.Commit()
 	}
 
 	removeTestUserFromDatabase()
 }
 
 func TestUserValidation(t *testing.T) {
-	addTestUserToDatabase(false)
-	ts := httptest.NewTLSServer(a.SignUpVerificationAdapter()(testHand))
+	err := addTestUserToDatabase(false)
+	if err != nil {
+		t.Error(err)
+	}
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpVerificationAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
-	token := a.passResetHandler.GenerateNewToken("dadams")
+	tx, _ := db.Begin()
+	token := a.passResetHandler.GenerateNewToken(tx, "dadams")
+	tx.Commit()
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"?"+token.Query(), nil)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Error("User not validated correctly")
 	}
 
-	user := getUserFromDB(a.db, a.UsersTableName, "username", "dadams")
+	tx, _ = db.Begin()
+	user := getUserFromDB(tx, a.usersTableName, "username", "dadams")
 	if !user.IsValidated() {
 		log.Println(user)
 		t.Error("User validation request passed, but user was not validated in the database")
 	}
 
 	resp.Body.Close()
+	tx.Commit()
 	removeTestUserFromDatabase()
 }
 
 func TestUserValidationNoQuery(t *testing.T) {
-	addTestUserToDatabase(false)
-	ts := httptest.NewTLSServer(a.SignUpVerificationAdapter()(testHand))
+	err := addTestUserToDatabase(false)
+	if err != nil {
+		t.Error(err)
+	}
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpVerificationAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -144,53 +164,67 @@ func TestUserValidationNoQuery(t *testing.T) {
 		t.Error("User validated without reset query")
 	}
 
-	user := getUserFromDB(a.db, a.UsersTableName, "username", "dadams")
+	tx, _ := db.Begin()
+	user := getUserFromDB(tx, a.usersTableName, "username", "dadams")
 	if user.IsValidated() {
 		log.Println(user)
 		t.Error("User validation request passed, but user was validated in the database incorrectly")
 	}
 
 	resp.Body.Close()
+	tx.Commit()
 	removeTestUserFromDatabase()
 }
 
 func TestUserValidationBadQuery(t *testing.T) {
-	addTestUserToDatabase(false)
-	ts := httptest.NewTLSServer(a.SignUpVerificationAdapter()(testHand))
+	err := addTestUserToDatabase(false)
+	if err != nil {
+		t.Error(err)
+	}
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpVerificationAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
+	tx, _ := db.Begin()
 
 	// Don't include the reset query
-	token := a.passResetHandler.GenerateNewToken("dadams")
+	token := a.passResetHandler.GenerateNewToken(tx, "dadams")
+	tx.Commit()
 	req, _ := http.NewRequest(http.MethodGet, ts.URL+"?"+token.Query()[1:], nil)
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Error("User validated without reset query")
 	}
 
-	user := getUserFromDB(a.db, a.UsersTableName, "username", "dadams")
+	tx, _ = db.Begin()
+	user := getUserFromDB(tx, a.usersTableName, "username", "dadams")
 	if user.IsValidated() {
 		log.Println(user)
 		t.Error("User validation request passed, but user was validated in the database incorrectly")
 	}
 
 	resp.Body.Close()
+	tx.Commit()
 	removeTestUserFromDatabase()
 }
 
 func TestUserCannotValidateIfLoggedIn(t *testing.T) {
-	addTestUserToDatabase(false)
+	err := addTestUserToDatabase(false)
+	if err != nil {
+		t.Error(err)
+	}
 
-	ts := httptest.NewTLSServer(a.SignUpVerificationAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpVerificationAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 
 	// Log user in by creating a session
-	ses, _ := a.sesHandler.CreateSession("dadams", true)
+	tx, _ := db.Begin()
+	ses := a.sesHandler.CreateSession(tx, "dadams", true)
 	req, _ := http.NewRequest("GET", ts.URL, nil)
 	req.AddCookie(ses.SessionCookie())
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
@@ -204,9 +238,12 @@ func TestUserCannotValidateIfLoggedIn(t *testing.T) {
 }
 
 func TestUsernameExists(t *testing.T) {
-	addTestUserToDatabase(false)
+	err := addTestUserToDatabase(false)
+	if err != nil {
+		t.Error(err)
+	}
 
-	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
+	ts := httptest.NewTLSServer(a.MustHaveAdapters(db, a.SignUpAdapter())(testHand))
 	defer ts.Close()
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
@@ -221,9 +258,12 @@ func TestUsernameExists(t *testing.T) {
 	form.Set("repeatedPassword", strings.Repeat("d", 32))
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	tx, _ := db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()
@@ -236,7 +276,10 @@ func TestUsernameExists(t *testing.T) {
 }
 
 func TestEmailExists(t *testing.T) {
-	addTestUserToDatabase(false)
+	err := addTestUserToDatabase(false)
+	if err != nil {
+		t.Error(err)
+	}
 
 	ts := httptest.NewTLSServer(a.SignUpAdapter()(testHand))
 	defer ts.Close()
@@ -253,9 +296,12 @@ func TestEmailExists(t *testing.T) {
 	form.Set("repeatedPassword", strings.Repeat("d", 32))
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
+	tx, _ := db.Begin()
+	req = req.WithContext(session.NewTxContext(req.Context(), tx))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
+	tx.Commit()
 
 	resp, err := client.Do(req)
 	redirectURL, _ := resp.Location()

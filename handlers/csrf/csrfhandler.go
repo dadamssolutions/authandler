@@ -38,13 +38,17 @@ func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
 
 // GenerateNewToken generates a new token for protecting against CSRF. The token is attached to the
 // response writer as a cookie.
-func (c *Handler) GenerateNewToken(w http.ResponseWriter) error {
-	ses, err := c.CreateSession("csrf", false)
-	if err != nil {
-		log.Println("Error creating a new CSRF token")
-		return err
+func (c *Handler) GenerateNewToken(w http.ResponseWriter, r *http.Request) error {
+	tx := session.TxFromContext(r.Context())
+	if tx == nil {
+		panic(fmt.Errorf("Invalid transaction"))
 	}
-	return c.AttachCookie(w, ses)
+	ses := c.CreateSession(tx, "csrf", false)
+	if ses == nil {
+		log.Println("Error creating a new CSRF token")
+		return fmt.Errorf("Error creating CSRF token")
+	}
+	return c.AttachCookie(tx, w, ses)
 }
 
 // ValidToken verifies that a CSRF token is valid and then destroys it.
@@ -55,6 +59,7 @@ func (c *Handler) ValidToken(r *http.Request) error {
 		log.Println(err)
 		return err
 	}
-	c.DestroySession(ses)
+	tx := session.TxFromContext(r.Context())
+	c.DestroySession(tx, ses)
 	return nil
 }

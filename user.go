@@ -3,7 +3,6 @@ package authandler
 import (
 	"database/sql"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -68,134 +67,79 @@ func (u User) IsValidated() bool {
 }
 
 func (u User) isValid() bool {
-	if u.FirstName == "" || u.LastName == "" || u.Email == "" || u.Username == "" {
-		return false
-	}
-	return true
+	return !(u.FirstName == "" || u.LastName == "" || u.Email == "" || u.Username == "")
 }
 
-func getUserFromDB(db *sql.DB, tableName, col, search string) *User {
-	tx, err := db.Begin()
-	if err != nil {
-		log.Println("Cannot connect to database")
-		return nil
-	}
+func getUserFromDB(tx *sql.Tx, tableName, col, search string) *User {
 	user := User{}
-	err = tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
+	err := tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
 	if err != nil {
-		fmt.Println(err)
-		tx.Rollback()
+		log.Println("Cannot get user from database")
 		return nil
 	}
-	tx.Commit()
 
 	user.Email, _ = url.QueryUnescape(user.Email)
 	user.FirstName, _ = url.QueryUnescape(user.FirstName)
 	user.LastName, _ = url.QueryUnescape(user.LastName)
 	user.Username, _ = url.QueryUnescape(user.Username)
 
-	user.passHash, _ = getUserPasswordHash(db, tableName, user.Username)
+	user.passHash = getUserPasswordHash(tx, tableName, user.Username)
 
 	return &user
 }
 
-func usernameOrEmailExists(db *sql.DB, tableName string, user *User) (bool, bool) {
-	usernameSearch := getUserFromDB(db, tableName, "username", user.Username)
-	emailSearch := getUserFromDB(db, tableName, "email", user.GetEmail())
+func usernameOrEmailExists(tx *sql.Tx, tableName string, user *User) (bool, bool) {
+	usernameSearch := getUserFromDB(tx, tableName, "username", user.Username)
+	emailSearch := getUserFromDB(tx, tableName, "email", user.GetEmail())
 	return usernameSearch != nil, emailSearch != nil
 }
 
-func addUserToDatabase(db *sql.DB, tableName string, user *User) error {
-	tx, err := db.Begin()
+func addUserToDatabase(tx *sql.Tx, tableName string, user *User) {
+	_, err := tx.Exec(fmt.Sprintf(addUserToDatabaseSQL, tableName, user.Username, user.FirstName, user.LastName, user.Email, base64.RawURLEncoding.EncodeToString(user.passHash)))
 	if err != nil {
-		log.Println("Cannot connect to database")
-		return err
+		panic(fmt.Sprintf("Cannot add user %v to database: %v", user.Username, err))
 	}
-	_, err = tx.Exec(fmt.Sprintf(addUserToDatabaseSQL, tableName, user.Username, user.FirstName, user.LastName, user.Email, base64.RawURLEncoding.EncodeToString(user.passHash)))
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
 }
 
-func validateUser(db *sql.DB, tableName string, user *User) error {
-	tx, err := db.Begin()
+func validateUser(tx *sql.Tx, tableName string, user *User) {
+	_, err := tx.Exec(fmt.Sprintf(validateUserSQL, tableName, user.Username))
 	if err != nil {
-		log.Println("User cannot be verified")
-		return fmt.Errorf("User %v cannot be verified", user.Username)
+		panic(fmt.Sprintf("Could not validate user %v: %v", user.Username, err))
 	}
-	_, err = tx.Exec(fmt.Sprintf(validateUserSQL, tableName, user.Username))
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("User %v cannot be verified", user.Username)
-	}
-	return tx.Commit()
 }
 
-func getUserPasswordHash(db *sql.DB, tableName, username string) ([]byte, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		log.Println(err)
-		return nil, errors.New("Failed to get password from database")
-	}
+func getUserPasswordHash(tx *sql.Tx, tableName, username string) []byte {
 	var pwHash string
-	err = tx.QueryRow(fmt.Sprintf(getUserPasswordHashSQL, tableName, username)).Scan(&pwHash)
+	err := tx.QueryRow(fmt.Sprintf(getUserPasswordHashSQL, tableName, username)).Scan(&pwHash)
 	if err != nil {
-		tx.Rollback()
-		log.Printf("User %v not found in the database\n", username)
-		return nil, fmt.Errorf("User %v not found in database", username)
+		panic(fmt.Sprintf("Cannot get password for user %v: %v", username, err))
 	}
 	pwDecoded, err := base64.RawURLEncoding.DecodeString(pwHash)
 	if err != nil {
-		tx.Rollback()
-		log.Println(err)
-		log.Println("Error decoding password from database. Database might be corrupted!")
-		return nil, errors.New("Failed to get password from database")
-	}
-	return pwDecoded, tx.Commit()
-}
-
-func updateUserPassword(db *sql.DB, tableName, username, passHash string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return errors.New("Failed to connect to database")
-	}
-	_, err = tx.Exec(fmt.Sprintf(updateUserPasswordSQL, tableName, passHash, username))
-	if err != nil {
-		tx.Rollback()
-		return errors.New("Failed to update user's last access time")
-	}
-	tx.Commit()
-	return nil
-}
-
-func getUserLastAccess(db *sql.DB, tableName, username string) *time.Time {
-	tx, err := db.Begin()
-	if err != nil {
 		return nil
 	}
+	return pwDecoded
+}
+
+func updateUserPassword(tx *sql.Tx, tableName, username, passHash string) {
+	_, err := tx.Exec(fmt.Sprintf(updateUserPasswordSQL, tableName, passHash, username))
+	if err != nil {
+		panic(fmt.Sprintf("Could not update user %v password: %v", username, err))
+	}
+}
+
+func getUserLastAccess(tx *sql.Tx, tableName, username string) time.Time {
 	var t time.Time
-	err = tx.QueryRow(fmt.Sprintf(getUserLastAccessSQL, tableName, username)).Scan(&t)
+	err := tx.QueryRow(fmt.Sprintf(getUserLastAccessSQL, tableName, username)).Scan(&t)
 	if err != nil {
-		tx.Rollback()
-		return nil
+		panic(fmt.Sprintf("Could not get last access time for user %v: %v", username, err))
 	}
-	tx.Commit()
-	return &t
+	return t
 }
 
-func updateUserLastAccess(db *sql.DB, tableName, username string) error {
-	tx, err := db.Begin()
+func updateUserLastAccess(tx *sql.Tx, tableName, username string) {
+	_, err := tx.Exec(fmt.Sprintf(updateUserLastAccessSQL, tableName, time.Now().Format(dateLayout), username))
 	if err != nil {
-		return errors.New("Failed to connect to database")
+		panic(fmt.Sprintf("Could not update last access time for user %v: %v", username, err))
 	}
-	_, err = tx.Exec(fmt.Sprintf(updateUserLastAccessSQL, tableName, time.Now().Format(dateLayout), username))
-	if err != nil {
-		log.Println(err)
-		tx.Rollback()
-		return errors.New("Failed to update user's access time")
-	}
-	tx.Commit()
-	return nil
 }

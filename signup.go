@@ -1,6 +1,7 @@
 package authandler
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"net/mail"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
+	"github.com/dadamssolutions/authandler/handlers/session"
 )
 
 // SignUpAdapter handles the sign up GET and POST requests.
@@ -24,7 +26,9 @@ func (a *HTTPAuth) SignUpAdapter() adaptd.Adapter {
 
 	logOnError := "CSRF token not valid for password reset request"
 
-	adapters := []adaptd.Adapter{adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User requesting login page is logged in")}
+	adapters := []adaptd.Adapter{
+		adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User requesting login page is logged in"),
+	}
 
 	return a.StandardPostAndGetAdapter(http.HandlerFunc(a.signUp), a.RedirectAfterSignUp, a.SignUpURL, logOnError, adapters...)
 }
@@ -36,17 +40,18 @@ func (a *HTTPAuth) SignUpVerificationAdapter() adaptd.Adapter {
 	// A check function that returns err == nil if the user is logged in or the password reset token is valid.
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		username, err := a.passResetHandler.ValidToken(r)
-		u := getUserFromDB(a.db, a.UsersTableName, "username", username)
-		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		if err != nil {
-			return NewError(TokenError)
+			return fmt.Errorf("Invalid sign-up verification token")
 		}
+
+		tx := session.TxFromContext(r.Context())
+		u := getUserFromDB(tx, a.usersTableName, "username", username)
+		*r = *r.WithContext(NewUserContext(r.Context(), u))
 		return nil
 	}
 
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
-			adaptd.EnsureHTTPS(false),
 			RedirectOnError(f, a.RedirectHandler(a.SignUpURL, http.StatusUnauthorized), "Invalid sign up validation query"),
 			RedirectOnError(a.verifySignUp, a.RedirectHandler(a.SignUpURL, http.StatusUnauthorized), "Invalid sign up validation query"),
 		}
@@ -64,7 +69,10 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
 	if password == "" || password != repeatedPassword {
 		log.Println("Sign up passwords did not match, redirecting back to sign up page")
-		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(PasswordConfirmationError)))
+		*r = *r.WithContext(NewErrorContext(
+			r.Context(),
+			fmt.Errorf("Passwords did not match"),
+		))
 		return
 	}
 	username := url.QueryEscape(r.PostFormValue("username"))
@@ -77,48 +85,55 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 	firstName, lastName := url.QueryEscape(r.PostFormValue("firstName")), url.QueryEscape(r.PostFormValue("lastName"))
 	hashedPassword, err := a.GenerateHashFromPassword([]byte(password))
 	if err != nil {
-		log.Println("Unable to has password")
+		log.Println("Unable to hash password")
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
 	user := &User{FirstName: firstName, LastName: lastName, Username: strings.ToLower(username), Email: strings.ToLower(addr.Address), passHash: hashedPassword, validated: false}
 
-	if usernameExists, emailExists := usernameOrEmailExists(a.db, a.UsersTableName, user); usernameExists {
+	tx := session.TxFromContext(r.Context())
+
+	if usernameExists, emailExists := usernameOrEmailExists(tx, a.usersTableName, user); usernameExists {
 		log.Printf("Username %v exists\n", user.Username)
-		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(UsernameExists)))
+		*r = *r.WithContext(NewErrorContext(
+			r.Context(),
+			fmt.Errorf("Username %v already exists", user.Username),
+		))
 		return
 	} else if emailExists {
 		log.Printf("Email %v exists\n", user.GetEmail())
-		*r = *r.WithContext(NewErrorContext(r.Context(), NewError(EmailExists)))
+		*r = *r.WithContext(NewErrorContext(
+			r.Context(),
+			fmt.Errorf("Email %v already exists", user.Email),
+		))
 		return
 	}
 
 	// Get the reset token and send the message.
-	token := a.passResetHandler.GenerateNewToken(user.Username)
+	token := a.passResetHandler.GenerateNewToken(tx, user.Username)
 	data := make(map[string]interface{})
 	data["Link"] = "https://" + a.domainName + a.SignUpVerificationURL + "?" + token.Query()
 	err = a.emailHandler.SendMessage(a.SignUpEmailTemplate, "Welcome!", data, user)
 	if err != nil || !user.isValid() {
 		log.Println("User sign up failed, redirecting back to sign up page")
-		err = NewError(PasswordConfirmationError)
-		*r = *r.WithContext(NewErrorContext(r.Context(), err))
+		*r = *r.WithContext(NewErrorContext(
+			r.Context(),
+			fmt.Errorf("User %v, %v was invalid, could not sign up", user.Username, user.Email),
+		))
 		return
 	}
-	err = addUserToDatabase(a.db, a.UsersTableName, user)
-	if err != nil {
-		*r = *r.WithContext(NewErrorContext(r.Context(), err))
-	}
+	addUserToDatabase(tx, a.usersTableName, user)
 }
 
 func (a *HTTPAuth) verifySignUp(w http.ResponseWriter, r *http.Request) error {
+	err := fmt.Errorf("No valid user was available")
 	user := UserFromContext(r.Context())
 	if user == nil {
-		return NewError(TokenError)
+		return err
 	}
 
-	err := validateUser(a.db, a.UsersTableName, user)
-	if err != nil {
-		err = NewError(TokenError)
-	}
-	return err
+	tx := session.TxFromContext(r.Context())
+	validateUser(tx, a.usersTableName, user)
+
+	return nil
 }

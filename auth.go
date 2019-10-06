@@ -43,7 +43,6 @@ func createUsersTable(db *sql.DB, tableName string) error {
 // HTTPAuth is a general handler that authenticates a user for http requests.
 // It also handles csrf token generation and validation.
 type HTTPAuth struct {
-	db                         *sql.DB
 	sesHandler                 *session.Handler
 	csrfHandler                *csrf.Handler
 	passResetHandler           *passreset.Handler
@@ -51,7 +50,7 @@ type HTTPAuth struct {
 	secret                     []byte
 	domainName                 string
 	allowXForwardedProto       bool
-	UsersTableName             string
+	usersTableName             string
 	LoginURL                   string
 	RedirectAfterLogin         string
 	LogOutURL                  string
@@ -75,12 +74,12 @@ type HTTPAuth struct {
 //
 // In order for this to work properly, you must also set the two email templates and the error template.
 // i.e. `auth.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))`
-func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+func DefaultHTTPAuth(db *sql.DB, usersTableName string, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
 	}
-	ah := &HTTPAuth{db: db, emailHandler: emailSender, UsersTableName: tableName, secret: secret, allowXForwardedProto: allowXForwardedProto}
+	ah := &HTTPAuth{emailHandler: emailSender, usersTableName: usersTableName, secret: secret, allowXForwardedProto: allowXForwardedProto}
 	// Password hashing functions
 	ah.GenerateHashFromPassword = g
 	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
@@ -103,7 +102,7 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedPr
 		return nil, errors.New("Password reset handler could not be created")
 	}
 	// Create the user database
-	err = createUsersTable(db, tableName)
+	err = createUsersTable(db, ah.usersTableName)
 	if err != nil {
 		return nil, errors.New("Users database table could not be created")
 	}
@@ -127,22 +126,22 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedPr
 }
 
 // AddDefaultHandlers adds the standard handlers needed for the auth handler.
-func (a *HTTPAuth) AddDefaultHandlers(home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	a.AddDefaultHandlersWithMux(http.DefaultServeMux, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset)
+func (a *HTTPAuth) AddDefaultHandlers(db *sql.DB, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+	a.AddDefaultHandlersWithMux(http.DefaultServeMux, db, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset)
 }
 
 // AddDefaultHandlersWithMux adds the standard handlers needed for the auth handler to the ServeMux.
-func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
-	mux.Handle("/", a.MustHaveAdapters()(home))
-	mux.Handle(a.SignUpURL, a.MustHaveAdapters(a.SignUpAdapter())(signUp))
-	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters()(afterSignUp))
-	mux.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(a.SignUpVerificationAdapter())(verifySignUp))
-	mux.Handle(a.LoginURL, a.MustHaveAdapters(a.LoginAdapter())(logIn))
-	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(a.RedirectIfUserNotAuthenticated())(afterLogIn))
-	mux.Handle(a.LogOutURL, a.MustHaveAdapters(a.LogoutAdapter("/"))(logOut))
-	mux.Handle(a.PasswordResetURL, a.MustHaveAdapters(a.PasswordResetAdapter())(passReset))
-	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters()(passResetSent))
-	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(a.PasswordResetRequestAdapter())(passResetRequest))
+func (a *HTTPAuth) AddDefaultHandlersWithMux(mux *http.ServeMux, db *sql.DB, home, signUp, afterSignUp, verifySignUp, logIn, afterLogIn, logOut, passResetRequest, passResetSent, passReset http.Handler) {
+	mux.Handle("/", a.MustHaveAdapters(db)(home))
+	mux.Handle(a.SignUpURL, a.MustHaveAdapters(db, a.SignUpAdapter())(signUp))
+	mux.Handle(a.RedirectAfterSignUp, a.MustHaveAdapters(db)(afterSignUp))
+	mux.Handle(a.SignUpVerificationURL, a.MustHaveAdapters(db, a.SignUpVerificationAdapter())(verifySignUp))
+	mux.Handle(a.LoginURL, a.MustHaveAdapters(db, a.LoginAdapter())(logIn))
+	mux.Handle(a.RedirectAfterLogin, a.MustHaveAdapters(db, a.RedirectIfUserNotAuthenticated())(afterLogIn))
+	mux.Handle(a.LogOutURL, a.MustHaveAdapters(db, a.LogoutAdapter("/"))(logOut))
+	mux.Handle(a.PasswordResetURL, a.MustHaveAdapters(db, a.PasswordResetAdapter())(passReset))
+	mux.Handle(a.RedirectAfterResetRequest, a.MustHaveAdapters(db)(passResetSent))
+	mux.Handle(a.PasswordResetRequestURL, a.MustHaveAdapters(db, a.PasswordResetRequestAdapter())(passResetRequest))
 }
 
 // LoadOrCreateSession adapter loads a session if the request has the correct cookie.
@@ -152,9 +151,10 @@ func (a *HTTPAuth) LoadOrCreateSession() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ses, err := a.sesHandler.ParseSessionFromRequest(r)
+			tx := session.TxFromContext(r.Context())
 			if err != nil {
-				ses, err = a.sesHandler.CreateSession("", false)
-				if err != nil {
+				ses = a.sesHandler.CreateSession(tx, "", false)
+				if ses == nil {
 					log.Println("Error creating a session")
 				}
 			}
@@ -170,15 +170,16 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ses := SessionFromContext(r.Context())
+			tx := session.TxFromContext(r.Context())
 			if ses != nil {
 				err := ErrorFromContext(r.Context())
 				if err != nil {
 					ses.AddError(err.Error())
-					a.sesHandler.UpdateSessionIfValid(ses)
+					a.sesHandler.UpdateSessionIfValid(tx, ses)
 				}
-				err = a.sesHandler.AttachCookie(w, ses)
+				err = a.sesHandler.AttachCookie(tx, w, ses)
 				if err == nil {
-					updateUserLastAccess(a.db, a.UsersTableName, ses.Username())
+					updateUserLastAccess(tx, a.usersTableName, ses.Username())
 				}
 			}
 			h.ServeHTTP(w, r)
@@ -188,10 +189,14 @@ func (a *HTTPAuth) AttachSessionCookie() adaptd.Adapter {
 
 // MustHaveAdapters are the adapters that we must have for essentially every Handler
 //
-// As of now, they are EnsureHHTPS. LoadOrCreateSession, and AttachSessionCookie (which is at the end)
-func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adapter {
+// As of now, they are EnsureHTTPS, PutTxOnContext, LoadOrCreateSession, and AttachSessionCookie (which is at the end)
+func (a *HTTPAuth) MustHaveAdapters(db *sql.DB, otherAdapters ...adaptd.Adapter) adaptd.Adapter {
 	return func(h http.Handler) http.Handler {
-		firstAdapters := []adaptd.Adapter{adaptd.EnsureHTTPS(a.allowXForwardedProto), a.LoadOrCreateSession()}
+		firstAdapters := []adaptd.Adapter{
+			adaptd.EnsureHTTPS(a.allowXForwardedProto),
+			PutTxOnContext(db),
+			a.LoadOrCreateSession(),
+		}
 		otherAdapters = append(firstAdapters, otherAdapters...)
 		otherAdapters = append(otherAdapters, a.AttachSessionCookie())
 		return adaptd.Adapt(h, otherAdapters...)
@@ -199,7 +204,6 @@ func (a *HTTPAuth) MustHaveAdapters(otherAdapters ...adaptd.Adapter) adaptd.Adap
 }
 
 // RedirectIfUserNotAuthenticated is like http.HandleFunc except it is verified the user is logged in.
-// It automatically applies the MustHaveAdapters.
 func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) bool {
 		authenticated := a.userIsAuthenticated(w, r)
@@ -208,35 +212,33 @@ func (a *HTTPAuth) RedirectIfUserNotAuthenticated() adaptd.Adapter {
 		}
 		return authenticated
 	}
-	adapters := []adaptd.Adapter{
-		adaptd.CheckAndRedirect(f, a.RedirectHandlerWithMode(a.LoginURL, http.StatusSeeOther, AddRedirectQueryMode), "User not authenticated"),
-	}
-	return a.MustHaveAdapters(adapters...)
+	return adaptd.CheckAndRedirect(f, a.RedirectHandlerWithMode(a.LoginURL, http.StatusSeeOther, AddRedirectQueryMode), "User not authenticated")
 }
 
-// RedirectIfNoPermission is like http.HandleFunc except it is verified the user is logged in and
+// RedirectIfNoPermission is like http.HandleFunc except it verifies the user is logged in and
 // has permission to view the page.
 func (a *HTTPAuth) RedirectIfNoPermission(minRole Role) adaptd.Adapter {
-	f := func(w http.ResponseWriter, r *http.Request) bool {
-		a.userIsAuthenticated(w, r)
-		user := UserFromContext(r.Context())
-		if user == nil {
-			return false
+	return func(h http.Handler) http.Handler {
+		f := func(w http.ResponseWriter, r *http.Request) bool {
+			a.userIsAuthenticated(w, r)
+			user := UserFromContext(r.Context())
+			if user == nil {
+				return false
+			}
+			return user.Role.HasRole(minRole)
 		}
-		return user.Role.HasRole(minRole)
+		adapters := []adaptd.Adapter{
+			a.RedirectIfUserNotAuthenticated(),
+			adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User does not have permission"),
+		}
+		return adaptd.Adapt(h, adapters...)
 	}
-	adapters := []adaptd.Adapter{
-		a.RedirectIfUserNotAuthenticated(),
-		adaptd.CheckAndRedirect(f, a.RedirectHandler(a.RedirectAfterLogin, http.StatusSeeOther), "User does not have permission"),
-	}
-	return a.MustHaveAdapters(adapters...)
 }
 
 // CSRFPostAdapter handles the CSRF token verification for POST requests.
 func (a *HTTPAuth) CSRFPostAdapter(redirectOnError, logOnError string) adaptd.Adapter {
 	f := func(w http.ResponseWriter, r *http.Request) error {
-		err := a.csrfHandler.ValidToken(r)
-		return err
+		return a.csrfHandler.ValidToken(r)
 	}
 	return func(h http.Handler) http.Handler {
 		adapters := []adaptd.Adapter{
@@ -288,6 +290,7 @@ func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 		return nil
 	}
 	user := UserFromContext(r.Context())
+	tx := session.TxFromContext(r.Context())
 	if err != nil {
 		if user != nil {
 			*r = *r.WithContext(NewUserContext(r.Context(), nil))
@@ -299,7 +302,7 @@ func (a *HTTPAuth) CurrentUser(r *http.Request) *User {
 		return user
 	}
 	// If there is a cookie, then for simplicity, we add the user to the Request's context.
-	user = getUserFromDB(a.db, a.UsersTableName, "username", ses.Username())
+	user = getUserFromDB(tx, a.usersTableName, "username", ses.Username())
 	if user != nil {
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 	}
@@ -313,21 +316,17 @@ func (a *HTTPAuth) IsCurrentUser(r *http.Request, username string) bool {
 }
 
 // Flashes returns the flashes of the session and updates the database.
-func (a *HTTPAuth) Flashes(ses *sessions.Session) ([]interface{}, []interface{}) {
-	return a.sesHandler.ReadFlashes(ses)
+func (a *HTTPAuth) Flashes(tx *sql.Tx, ses *sessions.Session) ([]interface{}, []interface{}) {
+	return a.sesHandler.ReadFlashes(tx, ses)
 }
 
 func (a *HTTPAuth) logUserOut(w http.ResponseWriter, r *http.Request) bool {
 	ses, err := a.sesHandler.ParseSessionFromRequest(r)
+	tx := session.TxFromContext(r.Context())
 	if ses.IsUserLoggedIn() {
-		username := ses.Username()
-		err = a.sesHandler.LogUserOut(ses)
-		if err != nil {
-			log.Printf("Could not log %v out\n", username)
-		} else {
-			log.Printf("%v was successfully logged out\n", username)
-			ses.AddMessage("You have been successfully logged out")
-		}
+		a.sesHandler.LogUserOut(tx, ses)
+		log.Printf("%v was successfully logged out\n", ses.Username())
+		ses.AddMessage("You have been successfully logged out")
 	}
 	*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 	return err == nil
@@ -343,8 +342,9 @@ func (a *HTTPAuth) userIsAuthenticated(w http.ResponseWriter, r *http.Request) b
 		}
 		*r = *r.WithContext(NewSessionContext(r.Context(), ses))
 	}
+	tx := session.TxFromContext(r.Context())
 	if ses.IsUserLoggedIn() {
-		user := getUserFromDB(a.db, a.UsersTableName, "username", ses.Username())
+		user := getUserFromDB(tx, a.usersTableName, "username", ses.Username())
 		*r = *r.WithContext(NewUserContext(r.Context(), user))
 		return true
 	}
