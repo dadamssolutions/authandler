@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
-	"net/url"
 	"strings"
 
 	"github.com/dadamssolutions/adaptd"
@@ -66,7 +65,7 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// If the user is not logged in, we get the information and validate it
-	password, repeatedPassword := url.QueryEscape(r.PostFormValue("password")), url.QueryEscape(r.PostFormValue("repeatedPassword"))
+	password, repeatedPassword := r.PostFormValue("password"), r.PostFormValue("repeatedPassword")
 	if password == "" || password != repeatedPassword {
 		log.Println("Sign up passwords did not match, redirecting back to sign up page")
 		*r = *r.WithContext(NewErrorContext(
@@ -75,14 +74,14 @@ func (a *HTTPAuth) signUp(w http.ResponseWriter, r *http.Request) {
 		))
 		return
 	}
-	username := url.QueryEscape(r.PostFormValue("username"))
+	username := r.PostFormValue("username")
 	addr, err := mail.ParseAddress(r.PostFormValue("email"))
 	if err != nil {
 		log.Printf("Sign up included a bad email address: %v\n", r.PostFormValue("email"))
 		*r = *r.WithContext(NewErrorContext(r.Context(), err))
 		return
 	}
-	firstName, lastName := url.QueryEscape(r.PostFormValue("firstName")), url.QueryEscape(r.PostFormValue("lastName"))
+	firstName, lastName := r.PostFormValue("firstName"), r.PostFormValue("lastName")
 	hashedPassword, err := a.GenerateHashFromPassword([]byte(password))
 	if err != nil {
 		log.Println("Unable to hash password")

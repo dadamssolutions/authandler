@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,12 +22,12 @@ import (
 
 const (
 	timestampFormat    = "2006-01-02 15:04:05.000 -0700"
-	tableCreation      = "CREATE TABLE IF NOT EXISTS %v (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistent boolean NOT NULL, PRIMARY KEY (selector));"
-	dropTable          = "DROP TABLE %v;"
-	insertSession      = "INSERT INTO %v (selector, session_hash, user_id, values, created, expiration, persistent) VALUES('%v', '%v', '%v', '%v', '%v', '%v', '%v');"
-	deleteSession      = "DELETE FROM %v WHERE selector = '%v';"
-	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %v WHERE selector = '%v';"
-	updateSession      = "UPDATE %v SET (user_id, expiration, values) = ('%v', '%v', '%v') WHERE selector = '%v';"
+	tableCreation      = "CREATE TABLE IF NOT EXISTS %s (selector char(16), session_hash varchar NOT NULL, user_id varchar(50) NOT NULL DEFAULT '', values text, created timestamp WITH TIME ZONE NOT NULL, expiration timestamp WITH TIME ZONE NOT NULL, persistent boolean NOT NULL, PRIMARY KEY (selector));"
+	dropTable          = "DROP TABLE %s;"
+	insertSession      = "INSERT INTO %s (selector, session_hash, user_id, values, created, expiration, persistent) VALUES(%s, %s, %s, %s, %s, %s, %s);"
+	deleteSession      = "DELETE FROM %s WHERE selector = %s;"
+	getSessionInfo     = "SELECT selector, session_hash, user_id, values, expiration, persistent FROM %s WHERE selector = %s;"
+	updateSession      = "UPDATE %s SET (user_id, expiration, values) = (%s, %s, %s) WHERE selector = %s;"
 	cleanUpOldSessions = "DELETE FROM %v WHERE (NOT persistent AND created < NOW() - INTERVAL '%v SECONDS') OR (persistent AND expiration < NOW() - INTERVAL '%v SECONDS') RETURNING selector;"
 )
 
@@ -105,7 +106,7 @@ func (s sesDataAccess) createTable(db *sql.DB) error {
 		return databaseTableCreationError(s.tableName)
 	}
 	// Create the table we need in the database
-	_, err = tx.Exec(fmt.Sprintf(tableCreation, s.tableName))
+	_, err = tx.Exec(fmt.Sprintf(tableCreation, pq.QuoteIdentifier(s.tableName)))
 	if err != nil {
 		tx.Rollback()
 		return databaseTableCreationError(s.tableName)
@@ -150,7 +151,7 @@ func (s sesDataAccess) dropTable(db *sql.DB) error {
 		return databaseTableCreationError(s.tableName)
 	}
 	// Drop the sessions table
-	_, err = tx.Exec(fmt.Sprintf(dropTable, s.tableName))
+	_, err = tx.Exec(fmt.Sprintf(dropTable, pq.QuoteIdentifier(s.tableName)))
 	if err != nil {
 		tx.Rollback()
 		return databaseTableCreationError(s.tableName)
@@ -170,7 +171,15 @@ func (s sesDataAccess) createSession(tx *sql.Tx, username string, maxLifetime ti
 	for true {
 		selectorID, sessionID = s.generateSelectorID(), s.generateSessionID()
 		ses = sessions.NewSession(selectorID, sessionID, username, s.encrypt(username, selectorID), s.cookieName, maxLifetime)
-		queryString := fmt.Sprintf(insertSession, s.tableName, ses.SelectorID(), s.hashString(ses.HashPayload()), ses.Username(), ses.ValuesAsText(), time.Now().Format(timestampFormat), ses.ExpireTime().Format(timestampFormat), persistent)
+		queryString := fmt.Sprintf(insertSession,
+			pq.QuoteIdentifier(s.tableName),
+			pq.QuoteLiteral(ses.SelectorID()),
+			pq.QuoteLiteral(s.hashString(ses.HashPayload())),
+			pq.QuoteLiteral(ses.Username()),
+			pq.QuoteLiteral(ses.ValuesAsText()),
+			pq.QuoteLiteral(time.Now().Format(timestampFormat)),
+			pq.QuoteLiteral(ses.ExpireTime().Format(timestampFormat)),
+			pq.QuoteLiteral(strconv.FormatBool(persistent)))
 		_, err = tx.Exec(queryString)
 		if err != nil {
 			if e, ok := err.(pq.Error); ok {
@@ -197,7 +206,9 @@ func (s sesDataAccess) getSessionInfo(tx *sql.Tx, selectorID, sessionID, encrypt
 	var persistent bool
 	var ses *sessions.Session
 
-	queryString := fmt.Sprintf(getSessionInfo, s.tableName, selectorID)
+	queryString := fmt.Sprintf(getSessionInfo,
+		pq.QuoteIdentifier(s.tableName),
+		pq.QuoteLiteral(selectorID))
 	err := tx.QueryRow(queryString).Scan(&selectorID, &dbHash, &username, &values, &expires, &persistent)
 	if err != nil {
 		return nil, err
@@ -220,14 +231,21 @@ func (s sesDataAccess) getSessionInfo(tx *sql.Tx, selectorID, sessionID, encrypt
 }
 
 func (s sesDataAccess) destroySession(tx *sql.Tx, ses *sessions.Session) {
-	queryString := fmt.Sprintf(deleteSession, s.tableName, ses.SelectorID())
+	queryString := fmt.Sprintf(deleteSession,
+		pq.QuoteIdentifier(s.tableName),
+		pq.QuoteLiteral(ses.SelectorID()))
 	tx.Exec(queryString)
 	ses.Destroy()
 }
 
 // updateSession indicates that the session is active and the expiration needs to be updated.
 func (s sesDataAccess) updateSession(tx *sql.Tx, ses *sessions.Session, maxLifetime time.Duration) {
-	queryString := fmt.Sprintf(updateSession, s.tableName, ses.Username(), ses.ExpireTime().Add(maxLifetime).Format(timestampFormat), ses.ValuesAsText(), ses.SelectorID())
+	queryString := fmt.Sprintf(updateSession,
+		pq.QuoteIdentifier(s.tableName),
+		pq.QuoteLiteral(ses.Username()),
+		pq.QuoteLiteral(ses.ExpireTime().Add(maxLifetime).Format(timestampFormat)),
+		pq.QuoteLiteral(ses.ValuesAsText()),
+		pq.QuoteLiteral(ses.SelectorID()))
 	_, err := tx.Exec(queryString)
 	if err != nil {
 		panic(err)

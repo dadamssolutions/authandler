@@ -23,6 +23,7 @@ import (
 	"github.com/dadamssolutions/authandler/handlers/passreset"
 	"github.com/dadamssolutions/authandler/handlers/session"
 	"github.com/dadamssolutions/authandler/handlers/session/sessions"
+	"github.com/lib/pq"
 	_ "github.com/lib/pq" // Database driver
 	"golang.org/x/crypto/bcrypt"
 )
@@ -32,7 +33,7 @@ func createUsersTable(db *sql.DB, tableName string) error {
 	if err != nil {
 		return nil
 	}
-	_, err = tx.Exec(fmt.Sprintf(createUsersTableSQL, tableName))
+	_, err = tx.Exec(fmt.Sprintf(createUsersTableSQL, pq.QuoteIdentifier(tableName)))
 	if err != nil {
 		tx.Rollback()
 		return err

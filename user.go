@@ -5,8 +5,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
-	"net/url"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // Represent roles used for users.
@@ -17,14 +18,14 @@ const (
 	Admin
 
 	createUsersTableSQL     = "CREATE TABLE IF NOT EXISTS %v (username varchar, fname varchar DEFAULT '', lname varchar DEFAULT '', email varchar NOT NULL UNIQUE, role int NOT NULL DEFAULT 0, validated boolean DEFAULT false, pass_hash char(80) DEFAULT '', last_access timestamp DEFAULT 'epoch', PRIMARY KEY (username));"
-	addUserToDatabaseSQL    = "INSERT INTO %v (username, fname, lname, email, validated, pass_hash) VALUES ('%v','%v','%v','%v',false,'%v');"
-	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %v WHERE %v = '%v';"
-	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = '%v';"
-	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = '%v';"
-	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = ('%v', true) WHERE username = '%v';"
-	updateUserLastAccessSQL = "UPDATE %v SET last_access = '%v' WHERE username = '%v';"
-	getUserLastAccessSQL    = "SELECT last_access FROM %v WHERE username = '%v';"
-	deleteTestTableSQL      = "DROP TABLE %v;"
+	addUserToDatabaseSQL    = "INSERT INTO %s (username, fname, lname, email, validated, pass_hash) VALUES (%s,%s,%s,%s,false,%s);"
+	getUserInfoSQL          = "SELECT username, fname, lname, email, role, validated FROM %s WHERE %s = %s;"
+	getUserPasswordHashSQL  = "SELECT pass_hash FROM %v WHERE username = %s;"
+	validateUserSQL         = "UPDATE %v SET validated = true WHERE username = %s;"
+	updateUserPasswordSQL   = "UPDATE %v SET (pass_hash, validated) = (%s, true) WHERE username = %s;"
+	updateUserLastAccessSQL = "UPDATE %v SET last_access = %s WHERE username = %s;"
+	getUserLastAccessSQL    = "SELECT last_access FROM %s WHERE username = %s;"
+	deleteTestTableSQL      = "DROP TABLE %s;"
 	dateLayout              = "2006-01-02 15:04:05"
 )
 
@@ -72,16 +73,15 @@ func (u User) isValid() bool {
 
 func getUserFromDB(tx *sql.Tx, tableName, col, search string) *User {
 	user := User{}
-	err := tx.QueryRow(fmt.Sprintf(getUserInfoSQL, tableName, col, search)).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
+	err := tx.QueryRow(fmt.Sprintf(getUserInfoSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteIdentifier(col),
+		pq.QuoteLiteral(search))).Scan(&user.Username, &user.FirstName, &user.LastName, &user.Email, &user.Role, &user.validated)
 	if err != nil {
+		log.Println(err)
 		log.Println("Cannot get user from database")
 		return nil
 	}
-
-	user.Email, _ = url.QueryUnescape(user.Email)
-	user.FirstName, _ = url.QueryUnescape(user.FirstName)
-	user.LastName, _ = url.QueryUnescape(user.LastName)
-	user.Username, _ = url.QueryUnescape(user.Username)
 
 	user.passHash = getUserPasswordHash(tx, tableName, user.Username)
 
@@ -95,14 +95,22 @@ func usernameOrEmailExists(tx *sql.Tx, tableName string, user *User) (bool, bool
 }
 
 func addUserToDatabase(tx *sql.Tx, tableName string, user *User) {
-	_, err := tx.Exec(fmt.Sprintf(addUserToDatabaseSQL, tableName, user.Username, user.FirstName, user.LastName, user.Email, base64.RawURLEncoding.EncodeToString(user.passHash)))
+	_, err := tx.Exec(fmt.Sprintf(addUserToDatabaseSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteLiteral(user.Username),
+		pq.QuoteLiteral(user.FirstName),
+		pq.QuoteLiteral(user.LastName),
+		pq.QuoteLiteral(user.Email),
+		pq.QuoteLiteral(string(user.passHash))))
 	if err != nil {
 		panic(fmt.Sprintf("Cannot add user %v to database: %v", user.Username, err))
 	}
 }
 
 func validateUser(tx *sql.Tx, tableName string, user *User) {
-	_, err := tx.Exec(fmt.Sprintf(validateUserSQL, tableName, user.Username))
+	_, err := tx.Exec(fmt.Sprintf(validateUserSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteLiteral(user.Username)))
 	if err != nil {
 		panic(fmt.Sprintf("Could not validate user %v: %v", user.Username, err))
 	}
@@ -110,7 +118,9 @@ func validateUser(tx *sql.Tx, tableName string, user *User) {
 
 func getUserPasswordHash(tx *sql.Tx, tableName, username string) []byte {
 	var pwHash string
-	err := tx.QueryRow(fmt.Sprintf(getUserPasswordHashSQL, tableName, username)).Scan(&pwHash)
+	err := tx.QueryRow(fmt.Sprintf(getUserPasswordHashSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteLiteral(username))).Scan(&pwHash)
 	if err != nil {
 		panic(fmt.Sprintf("Cannot get password for user %v: %v", username, err))
 	}
@@ -122,7 +132,10 @@ func getUserPasswordHash(tx *sql.Tx, tableName, username string) []byte {
 }
 
 func updateUserPassword(tx *sql.Tx, tableName, username, passHash string) {
-	_, err := tx.Exec(fmt.Sprintf(updateUserPasswordSQL, tableName, passHash, username))
+	_, err := tx.Exec(fmt.Sprintf(updateUserPasswordSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteLiteral(passHash),
+		pq.QuoteLiteral(username)))
 	if err != nil {
 		panic(fmt.Sprintf("Could not update user %v password: %v", username, err))
 	}
@@ -130,7 +143,9 @@ func updateUserPassword(tx *sql.Tx, tableName, username, passHash string) {
 
 func getUserLastAccess(tx *sql.Tx, tableName, username string) time.Time {
 	var t time.Time
-	err := tx.QueryRow(fmt.Sprintf(getUserLastAccessSQL, tableName, username)).Scan(&t)
+	err := tx.QueryRow(fmt.Sprintf(getUserLastAccessSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteLiteral(username))).Scan(&t)
 	if err != nil {
 		panic(fmt.Sprintf("Could not get last access time for user %v: %v", username, err))
 	}
@@ -138,7 +153,10 @@ func getUserLastAccess(tx *sql.Tx, tableName, username string) time.Time {
 }
 
 func updateUserLastAccess(tx *sql.Tx, tableName, username string) {
-	_, err := tx.Exec(fmt.Sprintf(updateUserLastAccessSQL, tableName, time.Now().Format(dateLayout), username))
+	_, err := tx.Exec(fmt.Sprintf(updateUserLastAccessSQL,
+		pq.QuoteIdentifier(tableName),
+		pq.QuoteLiteral(time.Now().Format(dateLayout)),
+		pq.QuoteLiteral(username)))
 	if err != nil {
 		panic(fmt.Sprintf("Could not update last access time for user %v: %v", username, err))
 	}

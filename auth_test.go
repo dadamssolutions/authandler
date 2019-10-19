@@ -20,6 +20,7 @@ import (
 
 	"github.com/dadamssolutions/authandler/handlers/email"
 	"github.com/dadamssolutions/authandler/handlers/session"
+	"github.com/lib/pq"
 )
 
 var a *HTTPAuth
@@ -49,7 +50,7 @@ func deleteTestTables(db *sql.DB, tableName ...string) error {
 		return nil
 	}
 	for i := range tableName {
-		_, err = tx.Exec(fmt.Sprintf(deleteTestTableSQL, tableName[i]))
+		_, err = tx.Exec(fmt.Sprintf(deleteTestTableSQL, pq.QuoteLiteral(tableName[i])))
 		if err != nil {
 			tx.Rollback()
 			return err
