@@ -10,7 +10,6 @@ import (
 )
 
 func TestUserLogInHandlerNotLoggedIn(t *testing.T) {
-	num = 0
 	addTestUserToDatabase(true)
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
@@ -50,7 +49,7 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should log user in
@@ -108,7 +107,6 @@ func TestUserLogInHandlerLoggingIn(t *testing.T) {
 
 func TestUserLogInHandlerBadInfo(t *testing.T) {
 	addTestUserToDatabase(true)
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
@@ -124,7 +122,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should not log user in with wrong password
@@ -144,7 +142,7 @@ func TestUserLogInHandlerBadInfo(t *testing.T) {
 	form.Set("username", "nadams")
 	req, _ = http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 	// POST request should not log user in
 	resp, _ = client.Do(req)
@@ -174,7 +172,7 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should log user in
@@ -209,7 +207,6 @@ func TestUserLogInHandlerPersistent(t *testing.T) {
 
 func TestUserLogInHandlerBadPersistent(t *testing.T) {
 	addTestUserToDatabase(true)
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
@@ -225,7 +222,7 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should log user in
@@ -248,7 +245,6 @@ func TestUserLogInHandlerBadPersistent(t *testing.T) {
 
 func TestUserLogInHandlerNoCSRF(t *testing.T) {
 	addTestUserToDatabase(true)
-	num = 0
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
 	defer ts.Close()
@@ -296,7 +292,7 @@ func TestUserNotValidatedCannotLogIn(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should log user in
@@ -337,7 +333,6 @@ func TestUserLogInHandlerRedirecting(t *testing.T) {
 
 func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 	addTestUserToDatabase(true)
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
@@ -353,7 +348,7 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should not log user in with wrong password
@@ -374,7 +369,6 @@ func TestUserLogInHandlerFailedLoginKeepsQuery(t *testing.T) {
 
 func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
 	addTestUserToDatabase(true)
-	num = 0
 	w := httptest.NewRecorder()
 
 	ts := httptest.NewTLSServer(a.MustHaveAdapters(a.LoginAdapter())(testHand))
@@ -390,7 +384,7 @@ func TestUserLogInHandlerRedirectWithQuery(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	// POST request should log user in

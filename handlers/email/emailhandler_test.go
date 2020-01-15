@@ -46,7 +46,7 @@ func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []b
 }
 
 func TestSendMessages(t *testing.T) {
-	twoTests := []Recipient{Recipient(&Receiver{"Mr. Adams", testEmail1}), Recipient(&Receiver{"Mr. Donald Adams", testEmail2})}
+	twoTests := []Recipient{Recipient(&Receiver{"Mr. Adams", "email@test.com"}), Recipient(&Receiver{"Mr. Donald Adams", "email2@test.com"})}
 	data := make(map[string]interface{})
 	data["Link"] = "https://thedadams.com"
 	err := eh.SendMessage(temp, "Password Reset Test", data, twoTests...)
@@ -56,7 +56,7 @@ func TestSendMessages(t *testing.T) {
 }
 
 func TestSendSignUpMessage(t *testing.T) {
-	r := &Receiver{"Mr. Adams", testEmail1}
+	r := &Receiver{"Mr. Adams", "email@test.com"}
 	err := eh.SendSignUpMessage(temp, r, "https://thedadams.com")
 	if err != nil {
 		t.Error(err)
@@ -64,7 +64,7 @@ func TestSendSignUpMessage(t *testing.T) {
 }
 
 func TestSendPasswordResetMessage(t *testing.T) {
-	r := &Receiver{"Mr. Adams", testEmail1}
+	r := &Receiver{"Mr. Adams", "email@test.com"}
 	err := eh.SendPasswordResetMessage(temp, r, "https://thedadams.com")
 	if err != nil {
 		t.Error(err)
@@ -72,7 +72,7 @@ func TestSendPasswordResetMessage(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	eh = NewSender("House Points Test", hostname, "587", testEmail1, password)
+	eh = NewSender("House Points Test", "stmp.test.com", "587", "email@test.com", "tEsTpAsSwOrD")
 	eh.SendMail = SendMail
 	temp = template.Must(template.ParseFiles("phony.tmpl.html"))
 

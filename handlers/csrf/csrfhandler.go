@@ -38,7 +38,7 @@ func NewHandler(db *sql.DB, timeout time.Duration, secret []byte) *Handler {
 
 // GenerateNewToken generates a new token for protecting against CSRF. The token is attached to the
 // response writer as a cookie.
-func (c *Handler) GenerateNewToken(w http.ResponseWriter) error {
+func (c *Handler) GenerateNewToken(w http.ResponseWriter, r *http.Request) error {
 	ses, err := c.CreateSession("csrf", false)
 	if err != nil {
 		log.Println("Error creating a new CSRF token")

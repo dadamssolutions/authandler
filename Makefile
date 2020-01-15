@@ -1,2 +1,2 @@
 test:
-	go test ./... -covermode=atomic -coverprofile=count.out -race
+	@docker-compose up --abort-on-container-exit

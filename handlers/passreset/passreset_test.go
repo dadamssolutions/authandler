@@ -12,7 +12,6 @@ import (
 )
 
 var passHand *Handler
-var db, err = sql.Open("postgres", "user=test dbname=test sslmode=disable")
 
 func TestTokenGeneration(t *testing.T) {
 	token := passHand.GenerateNewToken("dadams")
@@ -37,6 +36,19 @@ func TestTokenValidation(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	triesLeft := 5
+	db, err := sql.Open("postgres", "postgres://authandler:authandler@db:5432/authandler_passreset?sslmode=disable")
+
+	// Wait for the database to be ready.
+	for triesLeft > 0 {
+		if tx, err := db.Begin(); err == nil {
+			tx.Rollback()
+			break
+		}
+		log.Printf("Database not ready, %d tries left", triesLeft)
+		triesLeft--
+		time.Sleep(10 * time.Second)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}

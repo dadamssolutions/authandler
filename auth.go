@@ -75,7 +75,7 @@ type HTTPAuth struct {
 //
 // In order for this to work properly, you must also set the two email templates and the error template.
 // i.e. `auth.PasswordResetEmailTemplate = template.Must(template.ParseFiles("templates/passwordreset.tmpl.html"))`
-func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistantSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
+func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedProto bool, emailSender *email.Sender, sessionTimeout, persistentSessionTimeout, csrfsTimeout, passwordResetTimeout time.Duration, cost int, secret []byte) (*HTTPAuth, error) {
 	var err error
 	g := func(pass []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(pass, cost)
@@ -85,7 +85,7 @@ func DefaultHTTPAuth(db *sql.DB, tableName, domainName string, allowXForwardedPr
 	ah.GenerateHashFromPassword = g
 	ah.CompareHashAndPassword = bcrypt.CompareHashAndPassword
 	// Sessions handler
-	ah.sesHandler, err = session.NewHandlerWithDB(db, "sessions", "sessionID", sessionTimeout, persistantSessionTimeout, secret)
+	ah.sesHandler, err = session.NewHandlerWithDB(db, "sessions", "sessionID", sessionTimeout, persistentSessionTimeout, secret)
 	if err != nil {
 		// Session handler could not be created, likely a database problem.
 		return nil, errors.New("Session handler could not be created")

@@ -1,0 +1,24 @@
+version: "3.7"
+
+services:
+    db:
+        build:
+            dockerfile: Dockerfile-pg
+            context: .
+            args:
+                SQL_FILE: multidatabase.sh
+        environment:
+            - POSTGRES_USER=authandler
+            - POSTGRES_DB=authandler
+            - POSTGRES_PASSWORD=authandler
+            - POSTGRES_MULTIPLE_DATABASES=authandler_csrfs,authandler_passreset,authandler_session
+
+    app:
+        image: golang
+        volumes:
+            - ./:/go/src/authandler/
+        command: go test ./... -covermode=atomic -coverprofile=count.out -race
+        working_dir: /go/src/authandler
+        environment:
+            WAIT_HOSTS: db:5432
+            WAIT_BEFORE_HOSTS: 5

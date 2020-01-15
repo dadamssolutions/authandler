@@ -47,7 +47,7 @@ func TestSignUpPost(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
@@ -89,7 +89,7 @@ func TestSignUpPostErrorChecking(t *testing.T) {
 
 		req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(f.Encode()))
 		req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-		a.csrfHandler.GenerateNewToken(w)
+		a.csrfHandler.GenerateNewToken(w, req)
 		req.AddCookie(w.Result().Cookies()[0])
 
 		resp, err := client.Do(req)
@@ -222,7 +222,7 @@ func TestUsernameExists(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)
@@ -254,7 +254,7 @@ func TestEmailExists(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
-	a.csrfHandler.GenerateNewToken(w)
+	a.csrfHandler.GenerateNewToken(w, req)
 	req.AddCookie(w.Result().Cookies()[0])
 
 	resp, err := client.Do(req)

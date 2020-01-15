@@ -62,7 +62,7 @@ func addTestUserToDatabase(validated bool) {
 	pass := strings.Repeat("d", 64)
 	passHash, _ := a.GenerateHashFromPassword([]byte(pass))
 	tx, _ := a.db.Begin()
-	tx.Exec(fmt.Sprintf("INSERT INTO users (username, email, pass_hash, validated) VALUES ('dadams', 'test@gmail.com', '%v', %v);", base64.RawURLEncoding.EncodeToString(passHash), validated))
+	tx.Exec(fmt.Sprintf("INSERT INTO users (username, fname, lname, email, pass_hash, validated) VALUES ('dadams', 'Test', 'User', 'test@gmail.com', '%v', %v);", base64.RawURLEncoding.EncodeToString(passHash), validated))
 	tx.Commit()
 }
 
@@ -339,10 +339,22 @@ func SendMail(hostname string, auth smtp.Auth, from string, to []string, msg []b
 
 func TestMain(m *testing.M) {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	db, err := sql.Open("postgres", "user=test dbname=test1 sslmode=disable")
-	eh := email.NewSender("House Points Test", hostname, "587", testEmail1, password)
+	triesLeft := 5
+	db, err := sql.Open("postgres", "postgres://authandler:authandler@db:5432/authandler?sslmode=disable")
+
+	// Wait for the database to be ready.
+	for triesLeft > 0 {
+		if tx, err := db.Begin(); err == nil {
+			tx.Rollback()
+			break
+		}
+		log.Printf("Database not ready, %d tries left", triesLeft)
+		triesLeft--
+		time.Sleep(10 * time.Second)
+	}
+	eh := email.NewSender("House Points Test", "smtp.test.com", "587", "email@test.com", "tEsTPaSsWoRd")
 	eh.SendMail = SendMail
-	a, err = DefaultHTTPAuth(db, "users", "www.test.com", false, eh, time.Second, 2*time.Second, time.Second, time.Second, 10, bytes.Repeat([]byte("d"), 16))
+	a, err = DefaultHTTPAuth(db, "users", "www.test.com", false, eh, 2*time.Second, 3*time.Second, 2*time.Second, 2*time.Second, 10, bytes.Repeat([]byte("d"), 16))
 	if err != nil {
 		log.Panic(err)
 	}
