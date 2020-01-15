@@ -14,7 +14,7 @@ import (
 )
 
 var csrfHand *Handler
-var db, _ = sql.Open("postgres", "user=test dbname=test sslmode=disable")
+var db, _ = sql.Open("postgres", "postgres://authandler:authandler@db:5432/authandler_csrfs?sslmode=disable")
 
 func TestTokenGeneration(t *testing.T) {
 	w := httptest.NewRecorder()
@@ -51,7 +51,6 @@ func TestTokenValidation(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	triesLeft := 5
-	db, err := sql.Open("postgres", "postgres://authandler:authandler@db:5432/authandler_csrfs?sslmode=disable")
 
 	// Wait for the database to be ready.
 	for triesLeft > 0 {

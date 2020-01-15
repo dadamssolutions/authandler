@@ -77,7 +77,7 @@ func removeTestUserFromDatabase() {
 	tx, _ := db.Begin()
 	tx.Exec("DELETE FROM sessions WHERE user_id = 'dadams';")
 	tx.Exec("DELETE FROM csrfs WHERE user_id = 'dadams';")
-	tx.Exec("DELETE FROM auth_users WHERE username = 'dadams';")
+	tx.Exec(fmt.Sprintf("DELETE FROM %v WHERE username = 'dadams';", a.usersTableName))
 	tx.Commit()
 }
 
