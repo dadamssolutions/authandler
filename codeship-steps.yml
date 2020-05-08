@@ -1,6 +1,14 @@
-- name: Test
-  service: app
-  command: go test ./... -race -coverprofile=coverage.txt -covermode=atomic
-- name: Codecov
-  service: app
-  command: /go/codecov.sh
+- type: serial
+  steps:
+    - name: Code Climate Before
+      service: app
+      command: /go/cc-reporter before-build
+    - name: Test
+      service: app
+      command: go test ./... -race -coverprofile=c.out -covermode=atomic
+    - name: Code Climate After
+      service: app
+      command: /go/cc-reporter after-build --prefix github.com/dadamssolutions/authandler
+    - name: Codecov
+      service: app
+      command: /go/codecov.sh -f c.out
