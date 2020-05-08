@@ -273,12 +273,12 @@ func TestSendPasswordResetEmailBadEmail(t *testing.T) {
 	client := ts.Client()
 	client.CheckRedirect = checkRedirect
 	testCases := []url.Values{
-		url.Values{"test": []string{"test@outlook.com"}},
-		url.Values{"test": []string{"test@outlook.com"}},
-		url.Values{"test": []string{"first last@outlook.com"}},
-		url.Values{"test": []string{"test@google mail.com"}},
-		url.Values{"test": []string{"test@outlook\n--.com"}},
-		url.Values{"test": []string{"test@out -- look.com"}},
+		{"test": []string{"test@outlook.com"}},
+		{"test": []string{"test@outlook.com"}},
+		{"test": []string{"first last@outlook.com"}},
+		{"test": []string{"test@google mail.com"}},
+		{"test": []string{"test@outlook\n--.com"}},
+		{"test": []string{"test@out -- look.com"}},
 	}
 
 	for _, f := range testCases {
