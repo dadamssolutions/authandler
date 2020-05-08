@@ -1,3 +1,5 @@
 count.out
 secrets.go
 data/
+codeship.aes
+env

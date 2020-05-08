@@ -1,3 +1,6 @@
 - name: Test
   service: app
-  command: go test ./... -covermode=atomic -coverprofile=count.out -race
+  command: go test ./... -race -coverprofile=coverage.txt -covermode=atomic
+- name: Codecov
+  service: app
+  command: bash <(curl -s https://codecov.io/bash) || echo 'Codecov failed to upload'

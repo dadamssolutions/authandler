@@ -20,3 +20,5 @@ app:
     environment:
         WAIT_HOSTS: db:5432
         WAIT_BEFORE_HOSTS: 5
+    encrypted_env_file:
+      - env.encrypted
