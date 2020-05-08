@@ -1,5 +1,6 @@
-count.out
+coverage.txt
 secrets.go
 data/
 codeship.aes
+codecov.sh
 env

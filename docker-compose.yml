@@ -17,7 +17,7 @@ services:
         image: golang
         volumes:
             - ./:/go/src/authandler/
-        command: go test ./... -covermode=atomic -coverprofile=count.out -race
+        command: go test ./... -covermode=atomic -coverprofile=coverage.txt -race
         working_dir: /go/src/authandler
         environment:
             WAIT_HOSTS: db:5432

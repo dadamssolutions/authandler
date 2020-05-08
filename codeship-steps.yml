@@ -3,4 +3,4 @@
   command: go test ./... -race -coverprofile=coverage.txt -covermode=atomic
 - name: Codecov
   service: app
-  command: bash <(curl -s https://codecov.io/bash) || echo 'Codecov failed to upload'
+  command: /go/codecov.sh

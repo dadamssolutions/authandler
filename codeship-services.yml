@@ -11,14 +11,16 @@ db:
         - POSTGRES_MULTIPLE_DATABASES=authandler_csrfs,authandler_passreset,authandler_session
 
 app:
-    image: golang
+    build:
+        dockerfile: Dockerfile-go
+        context: .
     volumes:
         - ./:/go/src/authandler/
     working_dir: /go/src/authandler
     depends_on:
-      - db
+        - db
     environment:
         WAIT_HOSTS: db:5432
         WAIT_BEFORE_HOSTS: 5
     encrypted_env_file:
-      - env.encrypted
+        - env.encrypted

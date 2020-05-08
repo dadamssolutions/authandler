@@ -1,0 +1,4 @@
+FROM golang:latest
+
+RUN curl -s https://codecov.io/bash > codecov.sh
+RUN chmod +x codecov.sh
